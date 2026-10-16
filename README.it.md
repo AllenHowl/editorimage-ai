@@ -9,6 +9,8 @@
   in locale o con la tua API key di OpenAI, Gemini, Stability AI, Replicate o OpenRouter.
 </p>
 
+<p align="center"><img src="docs/promo.gif" alt="pedit promo: un agente IA modifica un'immagine via MCP" width="720"/></p>
+
 <p align="center"><img src="docs/screenshot.jpg" alt="pedit, editor di immagini con IA: pannello livelli con gruppo e maschera di ritaglio" width="900"/></p>
 
 Dici cosa vuoi a parole — *"togli lo sfondo, allunga il cielo, rendila piu' calda"* — e lavora sui

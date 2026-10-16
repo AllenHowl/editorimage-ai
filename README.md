@@ -16,6 +16,8 @@
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license"/>
 </p>
 
+<p align="center"><img src="docs/promo.gif" alt="pedit promo: an AI agent edits an image through MCP" width="720"/></p>
+
 <p align="center"><img src="docs/screenshot.jpg" alt="pedit AI image editor: layers panel with a group and a clipping mask, canvas, properties" width="900"/></p>
 
 You say what you want in plain words — *"remove the background, extend the sky, make it warmer"* — and
