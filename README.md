@@ -35,8 +35,10 @@ it works on real layers while you watch. Grab the mouse and fix anything at any 
 **2. Install pedit**
 
 ```bash
-uv tool install "pedit-mcp[ai]"     # [ai] adds local background removal and object removal
+uv tool install "pedit-mcp[ai]"
 ```
+
+`[ai]` adds local background removal and object removal.
 
 **3. Open the editor**
 
@@ -235,3 +237,7 @@ See [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+Made by [metiu.xyz](https://metiu.xyz/)

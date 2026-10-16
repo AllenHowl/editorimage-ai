@@ -141,6 +141,8 @@ textarea { width: 100%; resize: vertical; }
 .chat-input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--line); align-items: flex-end; }
 
 .status { display: flex; gap: 12px; align-items: center; padding: 3px 10px; background: var(--panel); border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+.status .credit { color: var(--dim); text-decoration: none; }
+.status .credit:hover { color: var(--text, inherit); text-decoration: underline; }
 
 .modal-bg { position: fixed; inset: 0; background: #0009; display: grid; place-items: center; z-index: 20; }
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; width: min(560px, 94vw); max-height: 88vh; overflow: auto; box-shadow: 0 20px 60px #000a; }

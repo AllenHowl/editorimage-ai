@@ -288,7 +288,8 @@ export default function App() {
           {cursor && <span>x {cursor.x} · y {cursor.y}</span>}
           <span className="grow" />
           {st.mcp && <span className="hint" title="Any MCP client can edit this document live">MCP: {st.mcp}</span>}
-        </> : <span className="hint">pedit {st?.version}</span>}
+        </> : <><span className="hint">pedit {st?.version}</span><span className="grow" /></>}
+        <a className="credit" href="https://metiu.xyz/" target="_blank" rel="noreferrer">made by metiu.xyz</a>
       </footer>
 
       {dialog === 'new' && <NewDoc presets={st?.presets} home={st?.home} onCreate={create} onClose={() => setDialog(null)} />}

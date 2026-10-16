@@ -28,8 +28,10 @@ Funziona con **Claude Code, Cursor, Codex, VS Code** e qualunque client [Model C
 **2. Installa pedit**
 
 ```bash
-uv tool install "pedit-mcp[ai]"     # [ai] aggiunge scontorno e rimozione oggetti in locale
+uv tool install "pedit-mcp[ai]"
 ```
+
+`[ai]` aggiunge scontorno e rimozione oggetti in locale.
 
 **3. Apri l'editor**
 
@@ -77,7 +79,7 @@ lavora sul documento che vedi nel browser, dal vivo.
 
 ```bash
 claude mcp add --transport http pedit-live http://127.0.0.1:8770/mcp/
-claude mcp add pedit -- uvx pedit-mcp          # server stdio, senza interfaccia
+claude mcp add pedit -- uvx pedit-mcp
 ```
 
 Flusso tipico: `project_create / project_open(foto) → add_image / add_text → analyze_image →
@@ -117,3 +119,7 @@ Codice e commenti in italiano; cio' che legge l'utente in inglese. Leggi [AGENTS
 ## Licenza
 
 MIT — vedi [LICENSE](LICENSE).
+
+---
+
+Realizzato da [metiu.xyz](https://metiu.xyz/)
