@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "pedit": {
+      "command": "pedit-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

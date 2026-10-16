@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+node_modules/
+
+# interfaccia compilata: si rigenera con `npm run build`
+frontend/dist/
+# copia della UI dentro il pacchetto, la fa scripts/build_wheel.py
+backend/pedit/webui/
+# pacchetti costruiti per PyPI
+dist/
+
+# ambienti virtuali
+.venv/
+venv/
+
+# cache di lavoro
+.pedit/
+
+# permessi locali dell'editor, non riguardano il progetto
+.claude/settings.local.json
