@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, connectEvents, op } from './api.js'
 import Canvas, { clampZoom } from './Canvas.jsx'
 import Chat from './Chat.jsx'
-import { Browse, Export, NewDoc, PromptDialog, Question } from './Dialogs.jsx'
+import { AIPrompt, AIServices, Browse, Describe, Expand, Export, NewDoc, Question } from './Dialogs.jsx'
 import Icon from './Icons.jsx'
 import Layers from './Layers.jsx'
 import Properties from './Properties.jsx'
-import { titleCase } from './util.js'
+import { findLayer, titleCase } from './util.js'
 
 const TOOLS = [
   ['move', 'move', 'Move / select layer (V)', 'v'],
@@ -15,6 +15,8 @@ const TOOLS = [
   ['crop', 'crop', 'Crop (C)', 'c'],
   ['brush', 'brush', 'Brush (B)', 'b'],
   ['eraser', 'eraser', 'Eraser (E)', 'e'],
+  ['clone', 'stamp', 'Clone stamp (S) — Alt+click sets the source', 's'],
+  ['spot', 'heal', 'Spot healing brush (J) — paint over a blemish', 'j'],
   ['text', 'text', 'Text (T)', 't'],
   ['shape', 'shape', 'Shape (U)', 'u'],
   ['hand', 'hand', 'Pan (H)', 'h'],
@@ -26,7 +28,11 @@ export default function App() {
   const [busy, setBusy] = useState('')
   const [tool, setTool] = useState('move')
   const [opts, setOpts] = useState({ color: '#ff3366', size: 24, hardness: 0.8, opacity: 1, shape: 'rect', fill: '#5b8cff',
-    stroke: '#ffffff', strokeOn: false, strokeWidth: 4, radius: 0, textSize: 96, textColor: '#ffffff', font: 'sans', bold: true })
+    stroke: '#ffffff', strokeOn: false, strokeWidth: 4, radius: 0, textSize: 96, textColor: '#ffffff', font: 'sans', bold: true,
+    onMask: false, maskOp: 'hide', heal: false })
+  const [clone, setClone] = useState(null)
+  const [services, setServices] = useState(null)
+  const [dialogData, setDialogData] = useState(null)
   const [selection, setSelection] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [zoom, setZoom] = useState('fit')
@@ -46,6 +52,7 @@ export default function App() {
 
   useEffect(() => {
     api('/api/state').then(s => { apply(s); setLlm(s.chat) }).catch(e => setErr(e.message))
+    api('/api/ai/services').then(setServices).catch(() => {})
     return connectEvents(ev => {
       if (ev.type === 'project') api('/api/project').then(apply).catch(() => {})
       if (ev.type === 'question') setQuestion(ev)
@@ -54,7 +61,10 @@ export default function App() {
 
   const project = st?.project
   const layers = project?.layers || []
-  const selLayer = layers.find(l => l.id === selectedId) || null
+  const selLayer = findLayer(layers, selectedId)
+  const openDialog = (name, data = null) => { setDialogData(data); setDialog(name) }
+  // pennello sulla maschera: serve un livello selezionato che non sia di pittura
+  const maskMode = !!(opts.onMask && selLayer && selLayer.type !== 'paint')
   useEffect(() => { if (selectedId && !selLayer) setSelectedId(null) }, [project])
 
   const run = useCallback(async (name, body) => {
@@ -72,6 +82,7 @@ export default function App() {
     const r = await run(name, body)
     setBusy('')
     if (r?.result?.id && name !== 'auto_enhance') setSelectedId(r.result.id)
+    if (name === 'expand_canvas' && r?.result?.layer) setSelectedId(null)
     return r
   }, [run])
 
@@ -159,6 +170,7 @@ export default function App() {
         <button disabled={!project} onClick={() => setDialog('import')}><Icon name="image" size={15} /> Import</button>
         <button disabled={!project} onClick={() => setDialog('generate')}><Icon name="sparkle" size={15} /> Generate</button>
         <button disabled={!project} onClick={() => runAI('auto_enhance', {}, 'Enhancing…')}><Icon name="wand" size={15} /> Auto enhance</button>
+        <button title="Online AI models: API keys and which model does what" onClick={() => setDialog('services')}><Icon name="gear" size={15} /> AI models</button>
         <span className="grow" />
         {project && <span className="docname">{project.name}{st.path ? '' : ' (unsaved)'}</span>}
         <button className="primary" disabled={!project} onClick={() => setDialog('export')}>Export</button>
@@ -170,7 +182,23 @@ export default function App() {
           <label>Size <input type="range" min={1} max={400} value={opts.size} onChange={e => set('size', +e.target.value)} /> {opts.size}px</label>
           <label>Hardness <input type="range" min={0} max={1} step={0.05} value={opts.hardness} onChange={e => set('hardness', +e.target.value)} /></label>
           <label>Opacity <input type="range" min={0.05} max={1} step={0.05} value={opts.opacity} onChange={e => set('opacity', +e.target.value)} /></label>
-          <span className="hint">Paints on the selected paint layer, or a new one.</span>
+          {selLayer && selLayer.type !== 'paint' && <label title="Paint on the selected layer's mask instead of pixels">
+            Paint on <select value={opts.onMask ? 'mask' : 'layer'} onChange={e => set('onMask', e.target.value === 'mask')}>
+              <option value="layer">new paint</option><option value="mask">mask of “{selLayer.name}”</option></select></label>}
+          {maskMode && tool === 'brush' && <select value={opts.maskOp} onChange={e => set('maskOp', e.target.value)}>
+            <option value="hide">hide (black)</option><option value="reveal">reveal (white)</option></select>}
+          <span className="hint">{maskMode ? (tool === 'eraser' ? 'Eraser reveals the mask.' : 'Painting the mask: nothing is deleted.')
+            : 'Paints on the selected paint layer, or a new one.'}</span>
+        </> : tool === 'clone' || tool === 'spot' ? <>
+          <label>Size <input type="range" min={2} max={400} value={opts.size} onChange={e => set('size', +e.target.value)} /> {opts.size}px</label>
+          {tool === 'clone' && <>
+            <label>Hardness <input type="range" min={0} max={1} step={0.05} value={opts.hardness} onChange={e => set('hardness', +e.target.value)} /></label>
+            <label title="Healing brush: copy the texture, keep the light and color of where you paint">
+              <input type="checkbox" checked={opts.heal} onChange={e => set('heal', e.target.checked)} /> Heal</label>
+            <span className="hint">{clone ? `Source ${Math.round(clone.src.x)}, ${Math.round(clone.src.y)}${clone.offset ? ' · aligned' : ''}` : 'Alt+click to set the source.'}</span>
+            {clone && <button onClick={() => setClone(null)}>Reset source</button>}
+          </>}
+          {tool === 'spot' && <span className="hint">Paint over a blemish or a small object: it is removed on a new layer.</span>}
         </> : tool === 'shape' ? <>
           <select value={opts.shape} onChange={e => set('shape', e.target.value)}><option>rect</option><option>ellipse</option></select>
           <label>Fill <input type="color" value={opts.fill} onChange={e => set('fill', e.target.value)} /></label>
@@ -189,6 +217,8 @@ export default function App() {
           <button disabled={!selLayer} onClick={() => run('set_mask', { layer: selectedId, kind: selection.kind, box: selBox, feather: 8 })}>Mask layer</button>
           <button onClick={() => runAI('inpaint', { box: selBox, ellipse: selection.kind === 'ellipse' }, 'Removing…')}><Icon name="wand" size={14} /> Remove object</button>
           <button onClick={() => setDialog('fill')}><Icon name="sparkle" size={14} /> Generative fill</button>
+          <button onClick={() => openDialog('edit', { box: selBox })} title="Image-to-image on this area"><Icon name="sparkle" size={14} /> Edit area with AI</button>
+          <button onClick={() => openDialog('describe', { box: selBox })}>Describe</button>
           <button onClick={() => setSelection(null)}>Deselect</button>
         </> : <span className="hint">{tool === 'move' ? 'Click a layer to select it, drag to move, corners to resize.' :
           ['marquee', 'ellipse', 'crop'].includes(tool) ? 'Drag on the image to select an area.' : ''}</span>}
@@ -207,7 +237,8 @@ export default function App() {
           {!st ? <div className="welcome"><p className="hint">Loading…</p></div> : project
             ? <Canvas project={project} revision={st.revision} tool={tool} toolOpts={opts} selection={selection}
               setSelection={setSelection} selectedId={selectedId} setSelectedId={setSelectedId} run={run}
-              zoom={zoom} setZoom={setZoom} setCursor={setCursor} onTextAt={onTextAt} />
+              zoom={zoom} setZoom={setZoom} setCursor={setCursor} onTextAt={onTextAt} onAI={runAI}
+              maskMode={maskMode} clone={clone} setClone={setClone} />
             : <div className="welcome">
               <img src="./logo.svg" alt="" width={72} />
               <h1>pedit</h1>
@@ -228,7 +259,8 @@ export default function App() {
           </div>
           {tab === 'layers' && project && <>
             <Layers project={project} revision={st.revision} selectedId={selectedId} setSelectedId={setSelectedId} run={run} />
-            <Properties project={project} layer={selLayer} catalog={st.effects || []} run={run} selection={selection} onAI={runAI} />
+            <Properties project={project} layer={selLayer} catalog={st.effects || []} run={run} selection={selection} onAI={runAI}
+              blendModes={st.blend_modes} openDialog={openDialog} maskMode={maskMode && ['brush', 'eraser'].includes(tool)} />
           </>}
           {tab === 'looks' && project && <div className="looks">
             <p className="hint">{selLayer ? `Applies to “${selLayer.name}”.` : 'Applies to the whole image as an adjustment layer.'}</p>
@@ -262,14 +294,25 @@ export default function App() {
       {dialog === 'new' && <NewDoc presets={st?.presets} home={st?.home} onCreate={create} onClose={() => setDialog(null)} />}
       {dialog === 'open' && <Browse mode="open" home={st?.home} onPick={openPath} onClose={() => setDialog(null)} />}
       {dialog === 'import' && <Browse mode="import" home={st?.home} onPick={importPaths} onClose={() => setDialog(null)} />}
-      {dialog === 'export' && <Export project={project} home={st?.home} onClose={() => setDialog(null)}
+      {dialog === 'export' && <Export project={project} home={st?.home} formats={st?.formats} onClose={() => setDialog(null)}
         onDone={r => { setDialog(null); setErr(`Exported ${r.width}×${r.height} → ${r.path}`) }} />}
-      {dialog === 'generate' && <PromptDialog title="Generate image" placeholder="a misty pine forest at dawn, cinematic light"
-        hint="Runs on your local ComfyUI and lands on a new layer." onClose={() => setDialog(null)}
-        onRun={p => { setDialog(null); runAI('generate_image', { prompt: p }, 'Generating…') }} />}
-      {dialog === 'fill' && selection && <PromptDialog title="Generative fill" placeholder="a wooden bench"
-        hint="Fills the selection with ComfyUI; the result is a new layer." onClose={() => setDialog(null)}
-        onRun={p => { setDialog(null); runAI('inpaint', { box: selBox, prompt: p, ellipse: selection.kind === 'ellipse' }, 'Filling…') }} />}
+      {dialog === 'generate' && <AIPrompt title="Generate image" task="generate" services={services}
+        placeholder="a misty pine forest at dawn, cinematic light" hint="Lands on a new layer." onClose={() => setDialog(null)}
+        onSettings={() => setDialog('services')}
+        onRun={(p, backend) => { setDialog(null); runAI('generate_image', { prompt: p, backend }, 'Generating…') }} />}
+      {dialog === 'fill' && selection && <AIPrompt title="Generative fill" task="inpaint" services={services} placeholder="a wooden bench"
+        hint="Fills the selection; the result is a new layer with a soft mask." onClose={() => setDialog(null)}
+        onSettings={() => setDialog('services')}
+        onRun={(p, backend) => { setDialog(null); runAI('inpaint', { box: selBox, prompt: p, ellipse: selection.kind === 'ellipse', backend }, 'Filling…') }} />}
+      {dialog === 'edit' && <AIPrompt title={dialogData?.layer ? 'Edit layer with AI' : 'Edit with AI'} task="edit" services={services} strength
+        placeholder="make it a snowy winter evening" onClose={() => setDialog(null)} onSettings={() => setDialog('services')}
+        hint="Image-to-image. Low strength keeps the picture, high reinvents it. The result is a new layer above; the original stays."
+        onRun={(p, backend, strength) => { setDialog(null); runAI('edit_image', { prompt: p, backend, strength, ...dialogData }, 'Editing…') }} />}
+      {dialog === 'expand' && project && <Expand project={project} services={services} onClose={() => setDialog(null)}
+        onRun={b => { setDialog(null); runAI('expand_canvas', b, 'Expanding…') }} />}
+      {dialog === 'describe' && <Describe target={dialogData || {}} services={services} onClose={() => setDialog(null)}
+        onSettings={() => setDialog('services')} />}
+      {dialog === 'services' && <AIServices services={services} onSaved={setServices} onClose={() => setDialog(null)} />}
       {question && <Question q={question} onAnswer={ok => { api('/api/answer', { body: { id: question.id, ok } }); setQuestion(null) }} />}
     </div>
   )

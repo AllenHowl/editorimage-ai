@@ -86,3 +86,22 @@ def test_non_local_host_refused(client):
 def test_export_question_without_ui_is_refused():
     api.S.listeners.clear()
     assert api.conferma_export("x.png") is False
+
+
+def test_ai_services_settings(client):
+    r = client.post("/api/ai/services", json={"provider": "stability", "key": "sk-secret-123456789", "default": True})
+    assert r.status_code == 200 and r.json()["default"] == "stability"
+    st = client.get("/api/ai/services").json()
+    assert "secret" not in str(st)
+    r = client.post("/api/ai/services", json={"provider": "nope"})
+    assert r.status_code == 400
+
+
+def test_group_ops_from_ui(client):
+    client.post("/api/project/create", json={"width": 100, "height": 100})
+    a = client.post("/api/op/add_shape", json={"w": 10, "h": 10}).json()["result"]["id"]
+    r = client.post("/api/op/group_layers", json={"layers": [a]})
+    g = r.json()["result"]["id"]
+    assert r.json()["project"]["layers"][0]["children"][0]["id"] == a
+    assert client.get(f"/api/layer/{a}/thumb").status_code == 200
+    assert client.get(f"/api/layer/{g}/thumb").status_code == 200

@@ -33,7 +33,7 @@ inventarti una diagnosi.
 
 ```bash
 pedit doctor                        # cosa c'e': rembg, OpenCV, ComfyUI, font, UI compilata
-pytest                              # ~120 test, ~20 s, niente rete ne' modelli
+pytest                              # ~180 test, ~25 s, niente rete ne' modelli
 cd frontend && npm run build && npm test
 ```
 
@@ -49,12 +49,14 @@ dallo stesso codice.
 
 ```
 backend/pedit/
-  model.py       documento: livelli (image, text, shape, fill, adjustment, paint), maschere, effetti, asset
+  model.py       documento: livelli (image, text, shape, fill, adjustment, paint, group), maschere, effetti, asset
   effects.py     registro filtri/stili: parametri, validazione, funzioni numpy
   render.py      livello -> tela del documento: filtri -> maschera -> stili -> opacita' -> fusione
   store.py       tutte le modifiche + undo/redo + salvataggio atomico
   presets.py     look gia' tarati (catene di filtri)
-  ai.py          scontorno, riempimento, generazione, upscale, con ripieghi
+  ai.py          scontorno, riempimento, generazione, image-to-image, upscale, con ripieghi
+  cloud.py       modelli in rete con la chiave dell'utente (OpenAI, Gemini, Stability, OpenRouter,
+                 Replicate, Anthropic, Ollama, compatibili OpenAI); tutto l'HTTP passa da _http
   comfy.py       client ComfyUI (workflow in formato API)
   analyze.py     misure (stats), correzione automatica (suggest_enhance), revisione (review)
   mcp_server.py  strumenti MCP          api.py  REST/WebSocket + /mcp per la UI
@@ -82,6 +84,15 @@ Scelte non ovvie:
   sagoma gia' mascherata.
 - **Parametri in pixel (`px=True`) scalano** con l'anteprima e con `resize_image`.
 - **Fusioni W3C** con alpha non premoltiplicato (`render.blend`): i test controllano i valori.
+- **Gruppi annidati**: `Layer.children`. Si cerca con `project.walk()` / `layer()` / `container()`,
+  mai scorrendo solo `project.layers`. `pass_through` (predefinito dei gruppi) compone i figli su cio'
+  che sta sotto; gli altri modi isolano il gruppo. `index_of` e' la posizione nella *sua* lista.
+- **Maschere di ritaglio** (`clip`): la base e i clip sopra sono una serie (`render._componi`).
+- **Pennellate ovunque vettoriali**: maschere dipinte (`Mask.strokes`, in pixel del documento) e timbro
+  clone (`Stroke.clone`, copia dal composito sotto il livello: per questo `layer_canvas` riceve `sotto`).
+- **IA in rete solo se scelta**: `backend="auto"` usa un servizio a pagamento solo se l'utente l'ha
+  reso predefinito (`cloud.scegli`). Le chiavi stanno in `~/.pedit/ai_api.json`, mai nel documento,
+  e non passano dagli strumenti MCP. Nei test `cloud._http` e' sempre sostituita.
 - **Il rumore ha un seme**: il render deve restare una funzione pura.
 - **Anteprime in cache per impronta** (`api.Session.revision`, sha1 del documento): un undo
   ritrova le anteprime gia' fatte.

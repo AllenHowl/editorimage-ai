@@ -242,6 +242,24 @@ def workflow_inpaint(image_name: str, prompt: str, negative: str, seed: int, ckp
     }
 
 
+def workflow_img2img(image_name: str, prompt: str, negative: str, seed: int, ckpt: str,
+                     steps: int, cfg: float, denoise: float) -> dict:
+    """Image-to-image: l'immagine codificata come latente, ``denoise`` = quanto cambiarla."""
+    return {
+        "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ckpt}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["1", 1]}},
+        "3": {"class_type": "CLIPTextEncode", "inputs": {"text": negative, "clip": ["1", 1]}},
+        "4": {"class_type": "LoadImage", "inputs": {"image": image_name}},
+        "5": {"class_type": "VAEEncode", "inputs": {"pixels": ["4", 0], "vae": ["1", 2]}},
+        "6": {"class_type": "KSampler", "inputs": {
+            "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["5", 0],
+            "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": "euler_ancestral",
+            "scheduler": "normal", "denoise": denoise}},
+        "7": {"class_type": "VAEDecode", "inputs": {"samples": ["6", 0], "vae": ["1", 2]}},
+        "8": {"class_type": "SaveImage", "inputs": {"images": ["7", 0], "filename_prefix": "pedit_edit"}},
+    }
+
+
 def workflow_upscale(image_name: str, model: str) -> dict:
     return {
         "1": {"class_type": "LoadImage", "inputs": {"image": image_name}},
@@ -273,6 +291,16 @@ def inpaint(img: Image.Image, mask: Image.Image, prompt: str, negative: str | No
     name = upload(rgba, "pedit_fill")
     wf = workflow_inpaint(name, prompt, negative or NEGATIVE, _seed(seed),
                           pick_checkpoint(cfg=cfg, inpaint=True), int(cfg["steps"]), float(cfg["cfg"]))
+    return run(wf)[0].resize(img.size, Image.Resampling.LANCZOS)
+
+
+def img2img(img: Image.Image, prompt: str, strength: float = 0.6, negative: str | None = None,
+            seed: int | None = None) -> Image.Image:
+    """``img`` RGB a multipli di 8; ``strength`` 0..1 (0 = identica, 1 = da capo)."""
+    cfg = config()
+    name = upload(img.convert("RGB"), "pedit_edit")
+    wf = workflow_img2img(name, prompt, negative or NEGATIVE, _seed(seed), pick_checkpoint(cfg=cfg),
+                          int(cfg["steps"]), float(cfg["cfg"]), float(min(1.0, max(0.05, strength))))
     return run(wf)[0].resize(img.size, Image.Resampling.LANCZOS)
 
 

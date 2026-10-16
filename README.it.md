@@ -1,11 +1,19 @@
 <p align="center"><img src="frontend/public/logo.svg" alt="logo pedit" width="96"/></p>
 
-<h1 align="center">pedit — chiedi a un'IA di ritoccare la tua immagine, e guardala farlo</h1>
+<h1 align="center">pedit — editor di immagini open source con IA, da guidare a parole (MCP)</h1>
 
 <p align="center">
-  <strong>Un normale editor di immagini a livelli — livelli, maschere, regolazioni, pennelli, testo — solo che un'IA lo puo' usare al posto tuo.</strong><br/>
-  Dici cosa vuoi a parole. Lavora sui livelli mentre guardi, e puoi riprendere il mouse e correggere qualunque cosa in qualunque momento.
+  <strong>Un editor di foto a livelli gratuito — un'alternativa a Photoshop e GIMP — che un agente IA puo' usare al posto tuo.</strong><br/>
+  Livelli, gruppi, maschere, maschere di ritaglio, 27 metodi di fusione, livelli di regolazione, timbro clone e pennello correttivo,
+  piu' riempimento ed espansione generativi, image-to-image, generazione da testo, scontorno e upscale —
+  in locale o con la tua API key di OpenAI, Gemini, Stability AI, Replicate o OpenRouter.
 </p>
+
+<p align="center"><img src="docs/screenshot.jpg" alt="pedit, editor di immagini con IA: pannello livelli con gruppo e maschera di ritaglio" width="900"/></p>
+
+Dici cosa vuoi a parole — *"togli lo sfondo, allunga il cielo, rendila piu' calda"* — e lavora sui
+livelli veri mentre guardi; puoi riprendere il mouse e correggere qualunque cosa in qualunque momento.
+Funziona con **Claude Code, Cursor, Codex, VS Code** e qualunque client [Model Context Protocol](https://modelcontextprotocol.io).
 
 > 🇬🇧 English: [README.md](README.md) · Progetto gemello per il video: [editorvideo-ai (vedit)](https://github.com/metiutek/editorvideo-ai)
 
@@ -56,10 +64,10 @@ livello di regolazione, lo scontorno IA e' una *maschera*, la rimozione di un og
 
 | | |
 |---|---|
-| **Un agente modifica davvero** | 55 strumenti MCP che sono le *stesse* operazioni dei pulsanti: livelli, trasformazioni, maschere, 33 filtri e stili, look, ritaglio, ridimensionamento, IA, export. |
+| **Un agente modifica davvero** | 62 strumenti MCP che sono le *stesse* operazioni dei pulsanti: livelli e gruppi, maschere di ritaglio, maschere dipinte, trasformazioni, 33 filtri e stili, 27 metodi di fusione, look, timbro clone, ritaglio, ridimensionamento, IA, export. |
 | **L'agente vede cosa ha fatto** | `preview` restituisce l'immagine renderizzata vera (con griglia di coordinate, o ingrandita su un riquadro). `analyze_image` misura esposizione, pixel bruciati, dominante, nitidezza. |
 | **Controlla il proprio lavoro** | `review_image` segnala testi tagliati o illeggibili sullo sfondo, livelli fuori tela, alte luci bruciate, immagini ingrandite — ognuno con lo strumento che lo sistema. |
-| **IA dove serve, in locale** | Scontorno (rembg/ONNX), rimozione oggetti (OpenCV o ripiego numpy) e — se hai [ComfyUI](https://github.com/comfyanonymous/ComfyUI) — riempimento generativo, generazione da testo, upscale con modello. |
+| **IA in locale, o in rete con la tua chiave** | Scontorno (rembg/ONNX), rimozione oggetti e pennello correttivo al volo (OpenCV o ripiego numpy) e — con [ComfyUI](https://github.com/comfyanonymous/ComfyUI) o un servizio in rete — generazione da testo, image-to-image, riempimento ed espansione generativi, upscale con modello. Servizi con la tua API key: OpenAI (GPT Image), Google Gemini (Nano Banana), Stability AI, OpenRouter, Replicate (FLUX…), qualunque endpoint compatibile OpenAI; image-to-text con Gemini, OpenAI, Claude o un modello di visione locale di Ollama. |
 | **Stesso documento, stessi pixel** | Il documento e' un file JSON e il render ne e' una funzione pura: anteprima, immagine dell'agente e file esportato escono dallo stesso codice. |
 
 ## Guidarlo da un agente (MCP)
@@ -93,7 +101,8 @@ pedit export poster.json poster.jpg --quality 90
 |---|---|
 | `ai` | `rembg` + `onnxruntime` (scontorno, modelli scaricati al primo uso) e OpenCV (rimozione oggetti migliore) |
 | `chat` | `anthropic` — l'assistente con una chiave Anthropic (gli altri motori non vogliono niente) |
-| ComfyUI | non e' un pacchetto pip: avvialo in locale (`127.0.0.1:8188`) e si accendono `generate_image`, `inpaint(prompt=…)` e `upscale` con modello |
+| ComfyUI | non e' un pacchetto pip: avvialo in locale (`127.0.0.1:8188`) e si accendono `generate_image`, `edit_image`, `inpaint(prompt=…)`, `expand_canvas` e `upscale` con modello |
+| Modelli in rete | nemmeno loro: incolla una API key in *AI models* (o `OPENAI_API_KEY`, `GEMINI_API_KEY`, `STABILITY_API_KEY`, `OPENROUTER_API_KEY`, `REPLICATE_API_TOKEN`, `ANTHROPIC_API_KEY`) e passa `backend=<servizio>`, oppure rendine uno il predefinito di `auto` |
 
 ## Test e sviluppo
 

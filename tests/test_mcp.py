@@ -93,3 +93,30 @@ def test_list_effects():
 def test_ai_status_reports_missing_comfy():
     st = run(ms.ai_status)
     assert st["comfyui"]["ok"] is False and "hint" in st["comfyui"]
+
+
+def test_instructions_mention_new_tools():
+    for frase in ("group_layers", "clip=true", "mask_stroke", "edit_image", "describe_image", "costano"):
+        assert frase in ms.ISTRUZIONI
+
+
+def test_groups_clip_mask_and_clone_from_mcp():
+    run(ms.project_create, width=200, height=100)
+    a = run(ms.add_shape, x=0, y=0, w=100, h=100, fill="#ff0000")
+    b = run(ms.add_fill, color="#0000ff")
+    run(ms.set_layer, layer=b["id"], clip=True)
+    g = run(ms.group_layers, layers=[a["id"], b["id"]], name="Pair")
+    info = run(ms.project_info)
+    assert info["layers"][0]["type"] == "group" and info["layers"][0]["children"][0]["clip"] is True
+    run(ms.mask_stroke, layer=g["id"], points=[[10, 10], [90, 10]], mode="hide", size=8)
+    run(ms.paint_stroke, points=[[150, 50]], size=20, source=[50, 50])
+    run(ms.move_layer, layer=a["id"], into="root")
+    out = run(ms.batch, ops=[{"tool": "ungroup", "args": {"layer": g["id"]}}])
+    assert out["done"] == 1
+
+
+def test_ai_services_without_keys():
+    st = run(ms.ai_services)
+    ids = {s["id"] for s in st["services"]}
+    assert {"openai", "gemini", "stability", "openrouter", "replicate", "anthropic"} <= ids
+    assert st["default"] is None and all("chiave" not in s for s in st["services"])

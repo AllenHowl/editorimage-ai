@@ -32,6 +32,7 @@ from . import render
 from .model import (
     BLEND_MODES,
     FILL_KINDS,
+    GROUP_BLEND_MODES,
     IMAGE_EXTS,
     MASK_KINDS,
     SHAPE_KINDS,
@@ -313,11 +314,23 @@ class Store:
             v["fill"] = vars(ly.fill)
         if ly.type == "paint":
             v["strokes"] = len(ly.strokes)
+            cloni = sum(1 for st in ly.strokes if st.clone)
+            if cloni:
+                v["clone_strokes"] = cloni
+        if ly.clip:
+            v["clip"] = True
+        if ly.type == "group":
+            v["children"] = [self.layer_view(c, detail) for c in reversed(ly.children)]
+            if ly.collapsed:
+                v["collapsed"] = True
         if ly.effects:
             v["effects"] = [{"type": e.type, **({"params": e.params} if detail == "full" else {}),
                              **({} if e.enabled else {"enabled": False})} for e in ly.effects]
         if ly.mask:
-            v["mask"] = {k: x for k, x in vars(ly.mask).items() if x not in (None, False, 0.0) or k == "kind"}
+            v["mask"] = {k: x for k, x in vars(ly.mask).items()
+                         if k != "strokes" and (x not in (None, False, 0.0) or k == "kind") and not (k == "base" and x == 1.0)}
+            if ly.mask.strokes:
+                v["mask"]["strokes"] = len(ly.mask.strokes)
         return v
 
     # ---- helper --------------------------------------------------------
@@ -327,7 +340,7 @@ class Store:
         try:
             ly = self.project.layer(layer)
         except KeyError as exc:
-            ids = ", ".join(f"{x.id} ({x.name})" for x in self.project.layers) or "none"
+            ids = ", ".join(f"{x.id} ({x.name})" for x in self.project.walk()) or "none"
             raise EditError(f"layer not found: {layer}; layers: {ids}") from exc
         if edit and ly.locked:
             raise EditError(f"layer {ly.name or ly.id} is locked: set_layer(locked=false) first")
@@ -335,15 +348,22 @@ class Store:
 
     def _insert(self, ly: Layer, index: int | None = None, above: str | None = None) -> None:
         if above:
-            i = self.project.index_of(self._layer(above, edit=False).id) + 1
-        elif index is None:
+            rif = self._layer(above, edit=False)
+            lista = self.project.container(rif.id)
+            lista.insert(self.project.index_of(rif.id) + 1, ly)
+            return
+        if index is None:
             i = len(self.project.layers)
         else:
             i = max(0, min(int(index), len(self.project.layers)))
         self.project.layers.insert(i, ly)
 
+    def _rimpiazza(self, vecchio: Layer, nuovo: Layer) -> None:
+        lista = self.project.container(vecchio.id)
+        lista[next(i for i, x in enumerate(lista) if x is vecchio)] = nuovo
+
     def _nome(self, base: str) -> str:
-        nomi = {ly.name for ly in self.project.layers}
+        nomi = {ly.name for ly in self.project.walk()}
         if base not in nomi:
             return base
         n = 2
@@ -417,7 +437,7 @@ class Store:
 
     def remove_asset(self, asset: str) -> dict:
         a = self.project.asset(asset)
-        usato = [ly.id for ly in self.project.layers
+        usato = [ly.id for ly in self.project.walk()
                  if ly.asset == a.id or (ly.mask and ly.mask.asset == a.id)]
         if usato:
             raise EditError(f"asset {asset} is used by layers {usato}")
@@ -554,15 +574,39 @@ class Store:
             self._insert(ly, index, above)
         return self.layer_view(ly)
 
-    def paint_stroke(self, points: list, layer: str | None = None, color: str = "#000000",
-                     size: float = 12, hardness: float = 0.8, opacity: float = 1.0,
-                     erase: bool = False) -> dict:
-        """Una pennellata (polilinea in pixel del documento) su un livello di pittura."""
+    @staticmethod
+    def _punti(points: Any) -> list[list[float]]:
         if not points or not all(isinstance(p, (list, tuple)) and len(p) == 2 for p in points):
             raise EditError("points must be a list of [x, y]")
+        return [[float(a), float(b)] for a, b in points]
+
+    def paint_stroke(self, points: list, layer: str | None = None, color: str = "#000000",
+                     size: float = 12, hardness: float = 0.8, opacity: float = 1.0,
+                     erase: bool = False, clone: list | None = None, source: list | None = None,
+                     heal: bool = False) -> dict:
+        """Una pennellata (polilinea in pixel del documento) su un livello di pittura.
+
+        Timbro clone: ``source=[x, y]`` e' il punto da cui copiare per il primo
+        punto della pennellata (oppure ``clone=[dx, dy]``, lo spostamento); i
+        pixel vengono da tutto cio' che sta sotto il livello. ``heal=true`` e'
+        il pennello correttivo: copia la grana e prende luce e colore del posto.
+        """
+        punti = self._punti(points)
         fx.parse_color(color)
         if not 0 <= hardness <= 1 or not 0 <= opacity <= 1 or size <= 0:
             raise EditError("hardness and opacity in 0..1, size > 0")
+        if source is not None:
+            if not isinstance(source, (list, tuple)) or len(source) != 2:
+                raise EditError("source must be [x, y] in document pixels")
+            clone = [float(source[0]) - punti[0][0], float(source[1]) - punti[0][1]]
+        if clone is not None:
+            if not isinstance(clone, (list, tuple)) or len(clone) != 2:
+                raise EditError("clone must be [dx, dy]: the offset from the stroke to the source")
+            clone = [float(clone[0]), float(clone[1])]
+            if erase:
+                raise EditError("a clone stroke cannot also erase")
+        elif heal:
+            raise EditError("heal needs a source: pass source=[x, y] (for spot healing use inpaint with points)")
         with self._edit():
             if layer is None:
                 top = self.project.layers[-1] if self.project.layers else None
@@ -576,9 +620,8 @@ class Store:
                 if ly.type != "paint":
                     raise EditError(f"{ly.name or ly.id} is a {ly.type} layer: paint goes on a paint layer "
                                     "(add_paint_layer, or omit layer=)")
-            ly.strokes.append(Stroke(points=[[float(a), float(b)] for a, b in points], color=color,
-                                     size=float(size), hardness=float(hardness), opacity=float(opacity),
-                                     erase=bool(erase)))
+            ly.strokes.append(Stroke(points=punti, color=color, size=float(size), hardness=float(hardness),
+                                     opacity=float(opacity), erase=bool(erase), clone=clone, heal=bool(heal)))
         return {"layer": ly.id, "strokes": len(ly.strokes)}
 
     def remove_stroke(self, layer: str, index: int = -1) -> dict:
@@ -591,12 +634,17 @@ class Store:
 
     # ---- livelli: proprieta' -------------------------------------------
     def set_layer(self, layer: str, name: str | None = None, visible: bool | None = None,
-                  locked: bool | None = None, opacity: float | None = None, blend: str | None = None) -> dict:
+                  locked: bool | None = None, opacity: float | None = None, blend: str | None = None,
+                  clip: bool | None = None, collapsed: bool | None = None) -> dict:
+        """``clip=true``: maschera di ritaglio sul livello sotto (si vede solo dove c'e' lui)."""
         ly = self._layer(layer, edit=False)
-        if ly.locked and locked is not False and any(v is not None for v in (name, opacity, blend)):
+        if ly.locked and locked is not False and any(v is not None for v in (name, opacity, blend, clip)):
             raise EditError(f"layer {ly.name or ly.id} is locked")
-        if blend is not None and blend not in BLEND_MODES:
-            raise EditError(f"blend must be one of {', '.join(BLEND_MODES)}")
+        modi = GROUP_BLEND_MODES if ly.type == "group" else BLEND_MODES
+        if blend is not None and blend not in modi:
+            raise EditError(f"blend must be one of {', '.join(modi)}")
+        if clip and self.project.index_of(ly.id) == 0:
+            raise EditError(f"{ly.name or ly.id} has no layer below to clip to")
         if opacity is not None and not 0 <= opacity <= 1:
             raise EditError("opacity must be in 0..1")
         with self._edit():
@@ -610,6 +658,10 @@ class Store:
                 ly.opacity = float(opacity)
             if blend is not None:
                 ly.blend = blend
+            if clip is not None:
+                ly.clip = bool(clip)
+            if collapsed is not None:
+                ly.collapsed = bool(collapsed)
         return self.layer_view(ly)
 
     def set_transform(self, layer: str, x: float | None = None, y: float | None = None,
@@ -622,8 +674,9 @@ class Store:
         che si vuole sul documento, mantenendo le proporzioni.
         """
         ly = self._layer(layer)
-        if ly.type in ("fill", "adjustment", "paint"):
-            raise EditError(f"a {ly.type} layer covers the whole canvas and has no transform")
+        if ly.type in ("fill", "adjustment", "paint", "group"):
+            raise EditError(f"a {ly.type} layer covers the whole canvas and has no transform"
+                            + (": move its layers instead" if ly.type == "group" else ""))
         with self._edit():
             if crop is not None:
                 if ly.type != "image":
@@ -744,39 +797,113 @@ class Store:
         return self.layer_view(ly)
 
     # ---- livelli: ordine ------------------------------------------------
-    def move_layer(self, layer: str, index: int | None = None, to: str | None = None) -> dict:
-        """``index`` 0 = in fondo; oppure ``to`` = up, down, top, bottom."""
+    def move_layer(self, layer: str, index: int | None = None, to: str | None = None,
+                   into: str | None = None) -> dict:
+        """Ordine. ``index`` 0 = in fondo; ``to`` = up, down, top, bottom (dentro la sua lista).
+
+        ``into=<gruppo>`` lo mette nel gruppo (in cima, o a ``index``);
+        ``into="root"`` lo tira fuori, al livello principale, sopra il suo gruppo.
+        """
         ly = self._layer(layer, edit=False)
-        layers = self.project.layers
+        src = self.project.container(ly.id)
         i = self.project.index_of(ly.id)
+        if into is not None:
+            if into in ("root", ""):
+                dest_list = self.project.layers
+                if index is not None:
+                    dest = int(index)
+                else:
+                    # sopra il gruppo di primo livello che lo contiene
+                    cima = ly
+                    while (su := self.project.parent(cima.id)) is not None:
+                        cima = su
+                    dest = self.project.index_of(cima.id) + 1
+            else:
+                g = self._layer(into, edit=False)
+                if g.type != "group":
+                    raise EditError(f"{g.name or g.id} is not a group")
+                if g is ly or any(x is g for x in self.project.walk(ly.children)):
+                    raise EditError("a group cannot go inside itself")
+                dest_list = g.children
+                dest = len(g.children) if index is None else int(index)
+            with self._edit():
+                src.pop(i)
+                if dest_list is src and i < dest:
+                    dest -= 1
+                dest = max(0, min(dest, len(dest_list)))
+                dest_list.insert(dest, ly)
+            return {"order": [x.id for x in reversed(dest_list)]}
         if to is not None:
-            dest = {"up": i + 1, "down": i - 1, "top": len(layers) - 1, "bottom": 0}.get(to)
+            dest = {"up": i + 1, "down": i - 1, "top": len(src) - 1, "bottom": 0}.get(to)
             if dest is None:
                 raise EditError("to must be up, down, top or bottom")
         elif index is not None:
             dest = int(index)
         else:
-            raise EditError("pass index= or to=")
-        dest = max(0, min(dest, len(layers) - 1))
+            raise EditError("pass index=, to= or into=")
+        dest = max(0, min(dest, len(src) - 1))
         with self._edit():
-            layers.insert(dest, layers.pop(i))
-        return {"order": [x.id for x in reversed(layers)]}
+            src.insert(dest, src.pop(i))
+        return {"order": [x.id for x in reversed(src)]}
+
+    def _nuovi_id(self, ly: Layer) -> None:
+        ly.id = new_id("L")
+        for c in ly.children:
+            self._nuovi_id(c)
 
     def duplicate_layer(self, layer: str, name: str | None = None) -> dict:
         ly = self._layer(layer, edit=False)
         with self._edit():
             nuovo = copy.deepcopy(ly)
-            nuovo.id = new_id("L")
+            self._nuovi_id(nuovo)
             nuovo.name = self._nome(name or f"{ly.name} copy")
             nuovo.locked = False
-            self.project.layers.insert(self.project.index_of(ly.id) + 1, nuovo)
+            self.project.container(ly.id).insert(self.project.index_of(ly.id) + 1, nuovo)
         return self.layer_view(nuovo)
 
     def remove_layer(self, layer: str) -> dict:
         ly = self._layer(layer)
         with self._edit():
-            self.project.layers.remove(ly)
+            self.project.container(ly.id).remove(ly)
         return {"removed": ly.id}
+
+    def group_layers(self, layers: list[str] | str, name: str | None = None) -> dict:
+        """Raccoglie dei livelli (della stessa lista) in un gruppo, al posto del piu' alto."""
+        if isinstance(layers, str):
+            layers = [layers]
+        if not layers:
+            raise EditError("which layers? pass layers=[ids or names]")
+        scelti = [self._layer(x, edit=False) for x in layers]
+        lista = self.project.container(scelti[0].id)
+        if any(self.project.container(x.id) is not lista for x in scelti):
+            raise EditError("the layers must be at the same level (all in the same group, or none)")
+        posti = sorted(self.project.index_of(x.id) for x in {id(x): x for x in scelti}.values())
+        with self._edit():
+            figli = [lista[k] for k in posti]
+            g = Layer(id=new_id("L"), type="group", name=self._nome(name or "Group"), blend="pass_through",
+                      children=figli)
+            for k in reversed(posti):
+                lista.pop(k)
+            lista.insert(posti[-1] - len(posti) + 1, g)
+        return self.layer_view(g)
+
+    def add_group(self, name: str | None = None, index: int | None = None, above: str | None = None) -> dict:
+        """Un gruppo vuoto; ci si mettono livelli con move_layer(into=...)."""
+        with self._edit():
+            g = Layer(id=new_id("L"), type="group", name=self._nome(name or "Group"), blend="pass_through")
+            self._insert(g, index, above)
+        return self.layer_view(g)
+
+    def ungroup(self, layer: str) -> dict:
+        """Scioglie un gruppo: i figli tornano nella lista del gruppo, al suo posto."""
+        g = self._layer(layer)
+        if g.type != "group":
+            raise EditError(f"{g.name or g.id} is not a group")
+        with self._edit():
+            lista = self.project.container(g.id)
+            i = self.project.index_of(g.id)
+            lista[i:i + 1] = g.children
+        return {"ungrouped": g.id, "layers": [c.id for c in reversed(g.children)]}
 
     # ---- effetti ---------------------------------------------------------
     def add_effect(self, type: str, layer: str, params: dict | None = None, index: int | None = None) -> dict:
@@ -840,7 +967,9 @@ class Store:
     # ---- maschere --------------------------------------------------------
     def set_mask(self, layer: str, kind: str = "rect", box: list | None = None, asset: str | None = None,
                  path: str | None = None, invert: bool = False, feather: float = 0.0,
-                 density: float = 1.0) -> dict:
+                 density: float = 1.0, hide_all: bool = False) -> dict:
+        """``kind="paint"``: maschera da dipingere (mask_stroke), che parte tutta
+        visibile o, con ``hide_all``, tutta nascosta."""
         ly = self._layer(layer)
         if kind not in MASK_KINDS:
             raise EditError(f"kind must be one of {', '.join(MASK_KINDS)}")
@@ -855,6 +984,9 @@ class Store:
                 self.project.asset(asset)
                 ly.mask = Mask(kind="image", asset=asset, invert=bool(invert), feather=float(feather),
                                density=float(density))
+            elif kind == "paint":
+                ly.mask = Mask(kind="paint", base=0.0 if hide_all else 1.0, invert=bool(invert),
+                               feather=float(feather), density=float(density))
             else:
                 ly.mask = Mask(kind=kind, box=self._check_box(box) if box is not None else
                                [0.0, 0.0, float(self.project.width), float(self.project.height)],
@@ -879,6 +1011,36 @@ class Store:
                 ly.mask.box = self._check_box(box)
         return self.layer_view(ly)
 
+    def mask_stroke(self, layer: str, points: list, mode: str = "hide", size: float = 40,
+                    hardness: float = 0.6, opacity: float = 1.0) -> dict:
+        """Dipinge sulla maschera di un livello: ``hide`` nasconde, ``reveal`` rivela.
+
+        Vale per ogni maschera (anche uno scontorno IA da rifinire); se il
+        livello non ne ha, ne crea una dipinta che parte tutta visibile.
+        """
+        ly = self._layer(layer)
+        if mode not in ("hide", "reveal"):
+            raise EditError("mode must be hide or reveal")
+        punti = self._punti(points)
+        if not 0 <= hardness <= 1 or not 0 < opacity <= 1 or size <= 0:
+            raise EditError("hardness in 0..1, opacity in (0, 1], size > 0")
+        with self._edit():
+            if ly.mask is None:
+                ly.mask = Mask(kind="paint")
+            # con la maschera invertita il pennello deve fare quello che dice
+            bianco = (mode == "reveal") != ly.mask.invert
+            ly.mask.strokes.append(Stroke(points=punti, color="#ffffff" if bianco else "#000000",
+                                          size=float(size), hardness=float(hardness), opacity=float(opacity)))
+        return self.layer_view(ly)
+
+    def remove_mask_stroke(self, layer: str, index: int = -1) -> dict:
+        ly = self._layer(layer)
+        if ly.mask is None or not ly.mask.strokes:
+            raise EditError("the mask has no strokes")
+        with self._edit():
+            ly.mask.strokes.pop(int(index))
+        return self.layer_view(ly)
+
     def remove_mask(self, layer: str) -> dict:
         ly = self._layer(layer)
         with self._edit():
@@ -887,11 +1049,11 @@ class Store:
 
     # ---- tela ------------------------------------------------------------
     def _sposta_tutto(self, dx: float, dy: float) -> None:
-        for ly in self.project.layers:
+        for ly in self.project.walk():
             if ly.type in ("image", "text", "shape"):
                 ly.x += dx
                 ly.y += dy
-            for st in ly.strokes:
+            for st in ly.strokes + (ly.mask.strokes if ly.mask else []):
                 st.points = [[px + dx, py + dy] for px, py in st.points]
             if ly.mask and ly.mask.box:
                 b = ly.mask.box
@@ -940,14 +1102,16 @@ class Store:
             raise EditError("resize_image keeps proportions: pass only one side, or use resize_canvas")
         k = kx
         with self._edit():
-            for ly in self.project.layers:
+            for ly in self.project.walk():
                 if ly.type in ("image", "text", "shape"):
                     ly.x *= k
                     ly.y *= k
                     ly.scale *= k
-                for st in ly.strokes:
+                for st in ly.strokes + (ly.mask.strokes if ly.mask else []):
                     st.points = [[px * k, py * k] for px, py in st.points]
                     st.size *= k
+                    if st.clone:
+                        st.clone = [v * k for v in st.clone]
                 if ly.mask:
                     if ly.mask.box:
                         ly.mask.box = [v * k for v in ly.mask.box]
@@ -973,27 +1137,31 @@ class Store:
         with self._edit():
             a = self._new_asset(img.crop(bbox), f"{ly.name} (raster)", "raster")
             nuovo = Layer(id=ly.id, type="image", name=ly.name, visible=ly.visible, opacity=ly.opacity,
-                          blend=ly.blend, x=float(bbox[0]), y=float(bbox[1]), asset=a.id)
-            self.project.layers[self.project.index_of(ly.id)] = nuovo
+                          blend="normal" if ly.blend == "pass_through" else ly.blend, clip=ly.clip,
+                          x=float(bbox[0]), y=float(bbox[1]), asset=a.id)
+            self._rimpiazza(ly, nuovo)
         return self.layer_view(nuovo)
 
     def merge_down(self, layer: str) -> dict:
         """Fonde il livello con quello sotto in un livello immagine."""
-        i = self.project.index_of(self._layer(layer).id)
+        ly = self._layer(layer)
+        lista = self.project.container(ly.id)
+        i = self.project.index_of(ly.id)
         if i == 0:
             raise EditError("there is no layer below")
-        sotto = self.project.layers[i - 1]
+        sotto = lista[i - 1]
         if sotto.locked:
             raise EditError(f"{sotto.name or sotto.id} is locked")
         sub = Project(width=self.project.width, height=self.project.height, background="transparent",
-                      layers=[sotto, self.project.layers[i]], assets=self.project.assets)
+                      layers=[sotto, ly], assets=self.project.assets)
         img = render.render(sub, self.base_dir, transparent=True)
         bbox = img.getbbox() or (0, 0, 1, 1)
         with self._edit():
             a = self._new_asset(img.crop(bbox), f"{sotto.name} (merged)", "merged")
-            nuovo = Layer(id=sotto.id, type="image", name=sotto.name, x=float(bbox[0]), y=float(bbox[1]), asset=a.id)
-            del self.project.layers[i]
-            self.project.layers[i - 1] = nuovo
+            nuovo = Layer(id=sotto.id, type="image", name=sotto.name, x=float(bbox[0]), y=float(bbox[1]), asset=a.id,
+                          clip=sotto.clip)
+            del lista[i]
+            lista[i - 1] = nuovo
         return self.layer_view(nuovo)
 
     def flatten(self) -> dict:
@@ -1017,8 +1185,12 @@ class Store:
             img = img.crop((x, y, x + w, y + h))
         return img
 
-    def remove_background(self, layer: str, keep: str = "subject", model: str = "isnet-general-use") -> dict:
-        """Scontorno IA come maschera di livello (l'immagine resta intatta)."""
+    def remove_background(self, layer: str, keep: str = "subject", model: str = "isnet-general-use",
+                          backend: str = "local") -> dict:
+        """Scontorno IA come maschera di livello (l'immagine resta intatta).
+
+        ``backend``: local (rembg) o un servizio in rete che lo sa fare (stability).
+        """
         ly = self._layer(layer)
         if keep not in ("subject", "background"):
             raise EditError("keep must be subject or background")
@@ -1026,7 +1198,7 @@ class Store:
         if src is None:
             raise EditError(f"{ly.name or ly.id} is a {ly.type} layer: background removal works on images")
         try:
-            m = ai.subject_mask(src, model)
+            m = ai.subject_mask(src, model, backend=backend)
         except ai.AIError as exc:
             raise EditError(str(exc)) from exc
         with self._edit():
@@ -1051,9 +1223,12 @@ class Store:
                 "note": "box ignores rotation" if ly.rotation else ""}
 
     def _maschera_zona(self, box: list | None, ellipse: bool, mask_path: str | None,
-                       feather: float) -> Image.Image:
+                       feather: float, points: list | None = None, size: float = 30) -> Image.Image:
         W, H = self.project.width, self.project.height
-        if mask_path:
+        if points:
+            st = Stroke(points=self._punti(points), size=float(size), hardness=1.0)
+            m = Image.fromarray((render._stroke_alpha(st, W, H, 1.0) * 255).astype(np.uint8), "L")
+        elif mask_path:
             m = render.load_image(mask_path)
             alpha = m.getchannel("A")
             m = alpha if alpha.getextrema()[0] < 255 else m.convert("L")
@@ -1070,14 +1245,17 @@ class Store:
 
     def inpaint(self, box: list | None = None, prompt: str | None = None, ellipse: bool = False,
                 mask_path: str | None = None, feather: float = 6.0, backend: str = "auto",
-                seed: int | None = None, name: str | None = None) -> dict:
+                seed: int | None = None, name: str | None = None, points: list | None = None,
+                size: float = 30) -> dict:
         """Rimuove o rigenera una zona. Il risultato e' una toppa su un livello nuovo in cima.
 
-        Senza prompt: rimozione classica (OpenCV o diffusione). Con prompt:
-        riempimento generativo con ComfyUI. La toppa ha una maschera sfumata,
+        La zona: ``box``, ``mask_path``, oppure ``points`` + ``size`` (una
+        pennellata: il pennello correttivo al volo). Senza prompt: rimozione
+        classica (OpenCV o diffusione). Con prompt: riempimento generativo
+        (ComfyUI o un servizio in rete). La toppa ha una maschera sfumata,
         quindi si sposta, si sfuma o si cancella come qualunque livello.
         """
-        zona = self._maschera_zona(box, ellipse, mask_path, feather)
+        zona = self._maschera_zona(box, ellipse, mask_path, feather, points, size)
         bb = zona.getbbox()
         if bb is None:
             raise EditError("the area to fill is empty")
@@ -1099,7 +1277,8 @@ class Store:
         with self._edit():
             a = self._new_asset(patch, "fill patch", "fill")
             ma = self._new_asset(m_crop.crop(mb), "fill patch mask", "fillmask")
-            ly = Layer(id=new_id("L"), type="image", name=self._nome(name or ("Generative fill" if prompt else "Removed")),
+            ly = Layer(id=new_id("L"), type="image",
+                       name=self._nome(name or ("Generative fill" if prompt else "Healed" if points else "Removed")),
                        asset=a.id, x=float(cx0 + mb[0]), y=float(cy0 + mb[1]),
                        mask=Mask(kind="image", asset=ma.id))
             self.project.layers.append(ly)
@@ -1107,21 +1286,131 @@ class Store:
 
     def generate_image(self, prompt: str, width: int | None = None, height: int | None = None,
                        negative: str | None = None, seed: int | None = None, fit: str = "cover",
-                       name: str | None = None) -> dict:
-        """Genera un'immagine da testo (ComfyUI) e la mette su un livello nuovo."""
+                       name: str | None = None, backend: str = "auto") -> dict:
+        """Genera un'immagine da testo (ComfyUI o un servizio in rete) e la mette su un livello nuovo."""
         if not prompt:
             raise EditError("prompt is empty")
         W, H = self.project.width, self.project.height
         k = 1024 / max(W, H)
         gw, gh = width or int(W * k), height or int(H * k)
         try:
-            img = ai.generate(prompt, gw, gh, negative, seed)
+            img, motore = ai.generate(prompt, gw, gh, negative, seed, backend=backend)
         except (ai.AIError, RuntimeError) as exc:
             raise EditError(str(exc)) from exc
         with self._edit():
             a = self._new_asset(img, prompt[:40], "gen")
             out = self._add_image_inside(a, fit, name or "Generated")
-        return out
+        return {**out, "backend": motore}
+
+    def edit_image(self, prompt: str, layer: str | None = None, box: list | None = None,
+                   strength: float = 0.6, backend: str = "auto", seed: int | None = None,
+                   name: str | None = None) -> dict:
+        """Image-to-image: rifa un livello (o una zona dell'immagine) secondo il prompt.
+
+        Il risultato e' un livello nuovo sopra, con la stessa posizione (e la
+        stessa maschera) dell'originale, che resta intatto sotto: si confronta
+        nascondendolo, si dosa con l'opacita'.
+        """
+        if not prompt:
+            raise EditError("prompt is empty")
+        if not 0 < strength <= 1:
+            raise EditError("strength must be in (0, 1]: low keeps the image, high reinvents it")
+        if layer is not None:
+            ly = self._layer(layer, edit=False)
+            src = self._sorgente_layer(ly)
+        else:
+            ly = None
+            x0, y0, x1, y1 = self._clip_box(self._check_box(box)) if box is not None else (
+                0, 0, self.project.width, self.project.height)
+            src = render.render(self.project, self.base_dir).crop((x0, y0, x1, y1))
+        try:
+            out, motore = ai.edit(src.convert("RGB"), prompt, strength, seed, backend=backend)
+        except (ai.AIError, RuntimeError) as exc:
+            raise EditError(str(exc)) from exc
+        with self._edit():
+            if ly is not None:
+                res = out.convert("RGBA")
+                if src.mode == "RGBA":
+                    res.putalpha(src.getchannel("A"))
+                a = self._new_asset(res, f"{ly.name} AI edit", "edit")
+                nuovo = Layer(id=new_id("L"), type="image", name=self._nome(name or f"{ly.name} (AI edit)"),
+                              asset=a.id, x=ly.x, y=ly.y, scale=ly.scale, rotation=ly.rotation,
+                              flip_h=ly.flip_h, flip_v=ly.flip_v, mask=copy.deepcopy(ly.mask), clip=ly.clip)
+                if nuovo.mask and nuovo.mask.kind == "image" and ly.crop:
+                    # la maschera era allineata all'asset intero, il risultato al ritaglio
+                    m = self._asset_img(ly.mask.asset)
+                    cx, cy, cw, ch = (int(round(v)) for v in ly.crop)
+                    sa = self.project.asset(ly.asset)
+                    m = m.resize((sa.width, sa.height)).crop((cx, cy, cx + cw, cy + ch))
+                    nuovo.mask.asset = self._new_asset(m, f"{ly.name} mask", "mask").id
+                self._insert(nuovo, above=ly.id)
+            else:
+                a = self._new_asset(out.convert("RGBA"), prompt[:40], "edit")
+                nuovo = Layer(id=new_id("L"), type="image", name=self._nome(name or "AI edit"), asset=a.id,
+                              x=float(x0), y=float(y0))
+                self.project.layers.append(nuovo)
+        return {**self.layer_view(nuovo), "backend": motore}
+
+    def describe_image(self, layer: str | None = None, box: list | None = None, question: str | None = None,
+                       backend: str = "auto") -> dict:
+        """Image-to-text: un modello di visione descrive l'immagine (o un livello, o una zona)."""
+        if layer is not None:
+            img = render.layer_image(self.project, self._layer(layer, edit=False).id, self.base_dir)
+            bb = img.getbbox()
+            if bb:
+                img = img.crop(bb)
+            bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            img = Image.alpha_composite(bg, img.convert("RGBA"))
+        else:
+            img = render.render(self.project, self.base_dir)
+            if box is not None:
+                img = img.crop(self._clip_box(self._check_box(box)))
+        try:
+            testo, motore = ai.describe(img.convert("RGB"), question, backend=backend)
+        except (ai.AIError, RuntimeError) as exc:
+            raise EditError(str(exc)) from exc
+        return {"text": testo, "backend": motore}
+
+    def expand_canvas(self, left: float = 0, top: float = 0, right: float = 0, bottom: float = 0,
+                      prompt: str | None = None, backend: str = "auto", seed: int | None = None,
+                      feather: float = 24.0) -> dict:
+        """Allarga la tela e riempie i bordi nuovi (Generative Expand).
+
+        Senza prompt e senza un servizio predefinito, i bordi si chiudono con la
+        rimozione classica (va bene per cieli, muri, fondi uniformi). Il
+        riempimento e' un livello in cima mascherato sui bordi nuovi (come in
+        Photoshop): nasce dal composito, regolazioni comprese, quindi sta sopra
+        di loro e non le subisce due volte. I livelli originali restano intatti.
+        """
+        l, t, r, b = (int(round(float(v))) for v in (left, top, right, bottom))
+        if min(l, t, r, b) < 0 or l + t + r + b == 0:
+            raise EditError("pass how many px to add on each side: left, top, right, bottom (>= 0)")
+        W0, H0 = self.project.width, self.project.height
+        W, H = W0 + l + r, H0 + t + b
+        if W > 20000 or H > 20000:
+            raise EditError("the canvas would be larger than 20000 px")
+        testo = prompt or ("continue the scene seamlessly" if backend not in ai.LOCALI else None)
+        with self.batch():
+            self.project.width, self.project.height = W, H
+            self._sposta_tutto(l, t)
+            comp = render.render(self.project, self.base_dir).convert("RGB")
+            nuova = Image.new("L", (W, H), 255)
+            nuova.paste(0, (l, t, l + W0, t + H0))
+            try:
+                filled, motore = ai.fill(comp, nuova, testo, backend=backend, seed=seed)
+            except ai.AIError as exc:
+                # batch rimette il documento com'era
+                raise EditError(str(exc)) from exc
+            # la toppa entra un po' dentro l'originale, sfumata: niente cuciture
+            m = nuova.filter(ImageFilter.MaxFilter(3))
+            if feather > 0:
+                m = m.filter(ImageFilter.MaxFilter(int(feather) // 2 * 2 + 1)).filter(ImageFilter.GaussianBlur(feather / 2))
+            a = self._new_asset(filled.convert("RGBA"), "expand fill", "expand")
+            ma = self._new_asset(m, "expand mask", "expandmask")
+            ly = Layer(id=new_id("L"), type="image", name=self._nome("Expanded"), asset=a.id,
+                       mask=Mask(kind="image", asset=ma.id))
+            self.project.layers.append(ly)
+        return {"width": W, "height": H, "layer": ly.id, "backend": motore}
 
     def _add_image_inside(self, a: Asset, fit: str, name: str) -> dict:
         W, H = self.project.width, self.project.height

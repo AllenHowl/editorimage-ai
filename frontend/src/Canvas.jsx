@@ -2,10 +2,10 @@
 // strato SVG in coordinate del documento per selezioni, riquadri e pennellate.
 // Nessun pixel si calcola qui: ogni gesto finisce in un'operazione di Store.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { addPoint, boxArr, fitScale, hitLayer, rectFrom, resizeFromCorner } from './util.js'
+import { addPoint, boxArr, findLayer, fitScale, hitLayer, hitLayerDeep, rectFrom, resizeFromCorner } from './util.js'
 
 export default function Canvas({ project, revision, tool, toolOpts, selection, setSelection, selectedId,
-  setSelectedId, run, zoom, setZoom, setCursor, onTextAt }) {
+  setSelectedId, run, zoom, setZoom, setCursor, onTextAt, onAI, maskMode, clone, setClone }) {
   const viewRef = useRef(null)
   const svgRef = useRef(null)
   const [view, setView] = useState({ w: 800, h: 600 })
@@ -51,7 +51,7 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
   if (!project) return <div className="canvas-view" ref={viewRef} />
 
   const layers = project.layers || []
-  const sel = layers.find(l => l.id === selectedId)
+  const sel = findLayer(layers, selectedId)
 
   const toDoc = e => {
     const r = svgRef.current.getBoundingClientRect()
@@ -65,12 +65,16 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
     if (tool === 'move') {
       const corner = e.target.dataset?.corner
       if (corner && sel?.box) { setDrag({ kind: 'resize', corner, start: p, box: sel.box, cur: p }); return }
-      const hit = sel?.box && hitLayer([sel], p) ? sel : hitLayer(layers, p)
+      const hit = sel?.box && hitLayer([sel], p) ? sel : hitLayerDeep(layers, p)
       if (hit) {
         setSelectedId(hit.id)
         if (!hit.locked) setDrag({ kind: 'move', start: p, box: hit.box, cur: p, id: hit.id })
       } else setSelectedId(null)
-    } else if (tool === 'brush' || tool === 'eraser') {
+    } else if (tool === 'brush' || tool === 'eraser' || tool === 'spot') {
+      setDrag({ kind: 'stroke', points: [[p.x, p.y]] })
+    } else if (tool === 'clone') {
+      if (e.altKey) { setClone({ src: p, offset: null }); return }
+      if (!clone) return
       setDrag({ kind: 'stroke', points: [[p.x, p.y]] })
     } else if (tool === 'text') {
       onTextAt(p)
@@ -108,8 +112,21 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
     } else if (d.kind === 'stroke') {
       const target = sel && sel.type === 'paint' && !sel.locked ? sel.id : null
       const o = toolOpts
-      await run('paint_stroke', { points: d.points, layer: target, color: o.color, size: o.size,
-        hardness: o.hardness, opacity: o.opacity, erase: tool === 'eraser' })
+      if (tool === 'spot') {
+        await onAI('inpaint', { points: d.points, size: o.size, feather: Math.max(2, o.size / 6) }, 'Healing…')
+      } else if (tool === 'clone') {
+        // allineato: lo spostamento si fissa alla prima pennellata e resta
+        const off = clone.offset || [clone.src.x - d.points[0][0], clone.src.y - d.points[0][1]]
+        if (!clone.offset) setClone({ ...clone, offset: off })
+        await run('paint_stroke', { points: d.points, layer: target, size: o.size, hardness: o.hardness,
+          opacity: o.opacity, clone: off, heal: o.heal })
+      } else if (maskMode) {
+        await run('mask_stroke', { layer: sel.id, points: d.points, mode: tool === 'eraser' ? 'reveal' : o.maskOp,
+          size: o.size, hardness: o.hardness, opacity: o.opacity })
+      } else {
+        await run('paint_stroke', { points: d.points, layer: target, color: o.color, size: o.size,
+          hardness: o.hardness, opacity: o.opacity, erase: tool === 'eraser' })
+      }
     } else if (d.kind === 'rect') {
       const r = rectFrom(d.start, d.cur)
       if (r.w < 2 || r.h < 2) { if (tool !== 'shape') setSelection(null); return }
@@ -155,8 +172,18 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
               : <rect className="live" x={live.x} y={live.y} width={live.w} height={live.h} strokeWidth={1.5 / scale} />)}
             {drag?.kind === 'stroke' && drag.points.length > 0 && (
               <polyline points={drag.points.map(p => p.join(',')).join(' ')} fill="none"
-                stroke={tool === 'eraser' ? 'rgba(255,255,255,.6)' : toolOpts.color} strokeWidth={toolOpts.size}
+                stroke={tool === 'eraser' ? 'rgba(255,255,255,.6)' : tool === 'spot' ? 'rgba(255,80,80,.5)'
+                  : tool === 'clone' ? 'rgba(120,200,255,.5)' : maskMode ? (toolOpts.maskOp === 'hide' ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)')
+                    : toolOpts.color} strokeWidth={toolOpts.size}
                 strokeLinecap="round" strokeLinejoin="round" opacity={toolOpts.opacity} />)}
+            {tool === 'clone' && clone && (() => {
+              const dp = drag?.kind === 'stroke' ? drag.points[drag.points.length - 1] : null
+              const off = clone.offset || (drag?.kind === 'stroke' ? [clone.src.x - drag.points[0][0], clone.src.y - drag.points[0][1]] : null)
+              const c = dp && off ? { x: dp[0] + off[0], y: dp[1] + off[1] } : clone.src
+              const r = 8 / scale
+              return <g className="clone-src"><circle cx={c.x} cy={c.y} r={toolOpts.size / 2} strokeWidth={1.2 / scale} />
+                <path d={`M${c.x - r} ${c.y}H${c.x + r}M${c.x} ${c.y - r}V${c.y + r}`} strokeWidth={1.2 / scale} /></g>
+            })()}
             {tool === 'move' && selBox && (
               <g className="selbox">
                 <rect x={selBox[0]} y={selBox[1]} width={selBox[2]} height={selBox[3]} strokeWidth={1.2 / scale} />

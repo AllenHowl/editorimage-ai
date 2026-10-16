@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
-from . import __version__, ai, analyze, llm, presets, render
+from . import __version__, ai, analyze, cloud, llm, presets, render
 from . import chat as chat_mod
 from . import effects as fx
 from .model import BLEND_MODES, IMAGE_EXTS, Project
@@ -54,6 +54,8 @@ OPS = {
     "set_mask", "update_mask", "remove_mask",
     "crop_canvas", "resize_canvas", "resize_image", "rasterize_layer", "merge_down", "flatten",
     "remove_background", "inpaint", "generate_image", "upscale", "auto_enhance", "match_color",
+    "group_layers", "add_group", "ungroup", "mask_stroke", "remove_mask_stroke",
+    "expand_canvas", "edit_image", "describe_image",
     "undo", "redo",
 }
 
@@ -235,6 +237,7 @@ def state() -> dict:
         "looks": presets.describe(),
         "presets": {k: list(v) for k, v in PRESETS.items()},
         "blend_modes": list(BLEND_MODES),
+        "formats": sorted(render.FORMATI),
         "fonts": ["sans", "serif", "mono", "display", "handwriting"],
         "chat": llm.stato(),
         "ai": ai.status(check_comfy=False),
@@ -530,6 +533,27 @@ def answer(body: AnswerBody) -> dict:
 # --------------------------------------------------------------------------
 # assistente
 # --------------------------------------------------------------------------
+
+
+@app.get("/api/ai/services")
+def ai_servizi() -> dict:
+    return cloud.stato()
+
+
+class ServizioBody(BaseModel):
+    provider: str
+    key: str | None = None
+    models: dict | None = None
+    url: str | None = None
+    default: bool | None = None
+
+
+@app.post("/api/ai/services")
+def ai_servizi_imposta(body: ServizioBody) -> dict:
+    try:
+        return cloud.imposta(body.provider, body.key, body.models, body.url, body.default)
+    except cloud.CloudError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.get("/api/llm")

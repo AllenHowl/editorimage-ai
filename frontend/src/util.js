@@ -74,3 +74,36 @@ export function resizeFromCorner(box, corner, d) {
   const ny = corner === 'ne' || corner === 'nw' ? y + (h - nh) : y
   return [nx, ny, nw, nh]
 }
+
+// albero dei livelli (dall'alto, con i figli dei gruppi) -> lista piatta, nell'ordine
+// del pannello: il gruppo e poi i suoi figli, con la profondita'. ``open`` = false
+// salta i figli dei gruppi chiusi (per il pannello); per il resto si vede tutto.
+export function flatLayers(layers, open = false, depth = 0, parent = null, hidden = false) {
+  const out = []
+  for (const ly of layers || []) {
+    const off = hidden || ly.visible === false
+    out.push({ ...ly, depth, parent, hiddenByParent: hidden })
+    if (ly.type === 'group' && (!open || !ly.collapsed))
+      out.push(...flatLayers(ly.children, open, depth + 1, ly.id, off))
+  }
+  return out
+}
+
+export const findLayer = (layers, id) => flatLayers(layers).find(l => l.id === id) || null
+
+// livello sotto cui cliccare: i gruppi non hanno riquadro, i figli di un gruppo nascosto non si vedono
+export function hitLayerDeep(layers, p) {
+  return hitLayer(flatLayers(layers).filter(l => !l.hiddenByParent), p)
+}
+
+// la lista (radice o figli di un gruppo) che contiene il livello
+export function siblingsOf(layers, id) {
+  if ((layers || []).some(l => l.id === id)) return layers
+  for (const l of layers || []) {
+    if (l.type === 'group') {
+      const s = siblingsOf(l.children, id)
+      if (s) return s
+    }
+  }
+  return null
+}

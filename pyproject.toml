@@ -5,13 +5,15 @@
 # Il modulo Python importabile resta `pedit`.
 name = "pedit-mcp"
 version = "0.1.0"
-description = "Layered image editor an AI agent can actually drive (MCP), with a web UI. Layers -> pixels, non-destructive."
+description = "Open-source AI image editor and MCP server: layers, masks, generative fill, image-to-image, background removal. A Photoshop/GIMP alternative an AI agent can drive, local or with your OpenAI, Gemini or Stability API key."
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = [
-    "image", "image-editing", "image-editor", "photo-editor", "photoshop", "gimp",
-    "layers", "mcp", "model-context-protocol", "ai-agent", "claude", "claude-code",
-    "background-removal", "inpainting", "generative-fill", "comfyui", "agentic-ai",
+    "image", "image-editing", "image-editor", "photo-editor", "ai-image-editor", "photoshop-alternative",
+    "gimp-alternative", "photoshop", "gimp", "layers", "mcp", "mcp-server", "model-context-protocol",
+    "ai-agent", "agentic-ai", "claude", "claude-code", "cursor", "background-removal", "inpainting",
+    "outpainting", "generative-fill", "image-to-image", "text-to-image", "image-to-text", "upscaling",
+    "comfyui", "stable-diffusion", "flux", "openai", "gpt-image", "gemini", "stability-ai", "replicate",
 ]
 authors = [{ name = "metiu1" }]
 license = { text = "MIT" }
@@ -24,7 +26,15 @@ classifiers = [
     "Natural Language :: English",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Framework :: FastAPI",
+    "Topic :: Multimedia :: Graphics",
     "Topic :: Multimedia :: Graphics :: Editors :: Raster-Based",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
 ]
 dependencies = [
     "mcp>=2.0.0",
@@ -45,6 +55,8 @@ dependencies = [
 Homepage = "https://github.com/metiutek/editorimage-ai"
 Source = "https://github.com/metiutek/editorimage-ai"
 Issues = "https://github.com/metiutek/editorimage-ai/issues"
+Documentation = "https://github.com/metiutek/editorimage-ai#readme"
+Changelog = "https://github.com/metiutek/editorimage-ai/commits/main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]

@@ -93,7 +93,7 @@ textarea { width: 100%; resize: vertical; }
 .layer-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .layer-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layer-name small { color: var(--dim); font-size: 11px; }
-.layer-actions { display: flex; gap: 2px; padding: 4px; border-top: 1px solid var(--line); }
+.layer-actions { display: flex; flex-wrap: wrap; gap: 2px; padding: 4px; border-top: 1px solid var(--line); }
 .layer-actions button { padding: 4px 6px; }
 .empty { color: var(--dim); padding: 12px; }
 
@@ -157,3 +157,15 @@ textarea { width: 100%; resize: vertical; }
   .side { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); }
 }
 .rendering { position: absolute; right: 8px; top: 8px; background: #000a; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; pointer-events: none; z-index: 2; }
+
+/* gruppi, ritaglio, finestre IA */
+.layer.group .layer-name span { font-weight: 600; }
+.layer.over { outline: 1px dashed var(--accent, #5b8cff); outline-offset: -1px; }
+.layer .caret { width: 18px; padding: 0; font-size: 11px; }
+.clip-mark { width: 18px; text-align: center; color: var(--dim); font-size: 13px; }
+.drop-root { margin: 6px; padding: 8px; border: 1px dashed var(--line); color: var(--dim); font-size: 12px; text-align: center; }
+.layer-actions button.on { background: #5b8cff33; }
+.clone-src circle, .clone-src path { fill: none; stroke: #fff; mix-blend-mode: difference; }
+.described { background: #ffffff08; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+.described p { margin: 0 0 6px; white-space: pre-wrap; line-height: 1.45; }
+.modal-foot .check { margin-right: auto; }

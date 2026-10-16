@@ -20,19 +20,31 @@ import uuid
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
+from PIL import features as _features
+
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".gif"}
+# AVIF dentro Pillow solo dalla 11.3, e solo se la ruota ha libavif
+if _features.check("avif"):
+    IMAGE_EXTS.add(".avif")
 
-LAYER_TYPES = ("image", "text", "shape", "fill", "adjustment", "paint")
+LAYER_TYPES = ("image", "text", "shape", "fill", "adjustment", "paint", "group")
 
+# le 27 di Photoshop (``add`` e' il suo Linear Dodge) piu' ``pass_through``,
+# che vale solo per i gruppi: i figli si fondono direttamente con cio' che sta
+# sotto il gruppo, come se il gruppo non ci fosse
 BLEND_MODES = (
-    "normal", "multiply", "screen", "overlay", "soft_light", "hard_light",
-    "darken", "lighten", "difference", "exclusion", "color_dodge", "color_burn",
-    "add", "subtract",
+    "normal", "dissolve",
+    "darken", "multiply", "color_burn", "linear_burn", "darker_color",
+    "lighten", "screen", "color_dodge", "add", "lighter_color",
+    "overlay", "soft_light", "hard_light", "vivid_light", "linear_light", "pin_light", "hard_mix",
+    "difference", "exclusion", "subtract", "divide",
+    "hue", "saturation", "color", "luminosity",
 )
+GROUP_BLEND_MODES = ("pass_through",) + BLEND_MODES
 
 SHAPE_KINDS = ("rect", "ellipse", "line", "polygon")
 FILL_KINDS = ("solid", "linear", "radial")
-MASK_KINDS = ("rect", "ellipse", "image")
+MASK_KINDS = ("rect", "ellipse", "image", "paint")
 
 
 def new_id(prefix: str) -> str:
@@ -126,6 +138,11 @@ class Mask:
     dell'immagine finale). ``image`` e' un asset in scala di grigi allineato ai
     pixel *del contenuto* del livello: segue spostamenti, scala e rotazione,
     come una maschera di Photoshop collegata. E' la forma dello scontorno IA.
+    ``paint`` parte tutta da ``base`` (1 = tutto visibile, 0 = tutto nascosto).
+
+    Sopra la forma, qualunque sia, si dipinge: ``strokes`` in pixel del
+    documento, bianco rivela e nero nasconde (conta la luminosita' del colore).
+    Cosi' si rifinisce a pennello anche uno scontorno IA.
     """
     kind: str = "rect"
     box: list[float] | None = None
@@ -133,6 +150,8 @@ class Mask:
     invert: bool = False
     feather: float = 0.0
     density: float = 1.0
+    base: float = 1.0
+    strokes: list["Stroke"] = field(default_factory=list)
 
 
 @dataclass
@@ -187,6 +206,11 @@ class Stroke:
     hardness: float = 0.8
     opacity: float = 1.0
     erase: bool = False
+    # timbro clone: i pixel arrivano da (punto + clone), presi da cio' che sta
+    # sotto il livello; con heal la luce e il colore si adattano alla zona
+    # di arrivo (pennello correttivo)
+    clone: list[float] | None = None
+    heal: bool = False
 
 
 @dataclass
@@ -216,6 +240,11 @@ class Layer:
     # filtri e stili (su un livello di regolazione: applicati a cio' che sta sotto)
     effects: list[Effect] = field(default_factory=list)
     mask: Mask | None = None
+    # maschera di ritaglio: il livello si vede solo dove c'e' quello sotto
+    clip: bool = False
+    # solo per i gruppi: i figli, dal basso verso l'alto
+    children: list["Layer"] = field(default_factory=list)
+    collapsed: bool = False
 
 
 @dataclass
@@ -238,19 +267,44 @@ class Project:
         return from_dict(cls, data)
 
     # ---- ricerca --------------------------------------------------------
+    def walk(self, layers: list[Layer] | None = None):
+        """Tutti i livelli, anche dentro i gruppi (dal basso, prima il gruppo poi i figli)."""
+        for ly in self.layers if layers is None else layers:
+            yield ly
+            if ly.children:
+                yield from self.walk(ly.children)
+
     def layer(self, layer_id: str) -> Layer:
-        for ly in self.layers:
+        for ly in self.walk():
             if ly.id == layer_id:
                 return ly
         # anche per nome: l'agente spesso ricorda "Title" e non "L3fa9c1d2"
-        for ly in self.layers:
+        for ly in self.walk():
             if ly.name and ly.name == layer_id:
                 return ly
         raise KeyError(f"layer not found: {layer_id}")
 
-    def index_of(self, layer_id: str) -> int:
+    def container(self, layer_id: str) -> list[Layer]:
+        """La lista che contiene il livello: ``layers`` o i figli di un gruppo."""
         target = self.layer(layer_id)
-        return next(i for i, ly in enumerate(self.layers) if ly is target)
+        if any(ly is target for ly in self.layers):
+            return self.layers
+        for ly in self.walk():
+            if any(c is target for c in ly.children):
+                return ly.children
+        raise KeyError(f"layer not found: {layer_id}")
+
+    def parent(self, layer_id: str) -> Layer | None:
+        target = self.layer(layer_id)
+        for ly in self.walk():
+            if any(c is target for c in ly.children):
+                return ly
+        return None
+
+    def index_of(self, layer_id: str) -> int:
+        """Posizione dentro la sua lista (``container``)."""
+        target = self.layer(layer_id)
+        return next(i for i, ly in enumerate(self.container(layer_id)) if ly is target)
 
     def asset(self, asset_id: str) -> Asset:
         for a in self.assets:

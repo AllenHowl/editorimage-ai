@@ -108,7 +108,7 @@ def review(project: Project, base_dir: str | None = None) -> list[dict]:
     if not project.layers:
         return [{"issue": "empty document", "fix": "add_image / add_text / generate_image"}]
     W, H = project.width, project.height
-    for ly in project.layers:
+    for ly in project.walk():
         nome = ly.name or ly.id
         if not ly.visible:
             continue

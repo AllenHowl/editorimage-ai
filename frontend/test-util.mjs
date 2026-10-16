@@ -1,6 +1,6 @@
 // Funzioni pure della UI, senza browser: node test-util.mjs
 import assert from 'node:assert/strict'
-import { addPoint, boxArr, defaultParams, fitScale, hitLayer, rectFrom, resizeFromCorner, stepFor } from './src/util.js'
+import { addPoint, boxArr, defaultParams, findLayer, fitScale, flatLayers, hitLayer, hitLayerDeep, rectFrom, resizeFromCorner, siblingsOf, stepFor } from './src/util.js'
 
 assert.deepEqual(rectFrom({ x: 10, y: 20 }, { x: 4, y: 30 }), { x: 4, y: 20, w: 6, h: 10 })
 assert.deepEqual(boxArr({ x: 1.4, y: 2.6, w: 3, h: 4 }), [1, 3, 3, 4])
@@ -26,5 +26,18 @@ assert.equal(stepFor({ type: 'number', min: -1, max: 1 }), 0.01)
 assert.deepEqual(resizeFromCorner([0, 0, 100, 50], 'se', { x: 100, y: 0 }), [0, 0, 200, 100])
 // angolo in alto a sinistra: l'angolo opposto resta fermo
 assert.deepEqual(resizeFromCorner([10, 10, 100, 50], 'nw', { x: 50, y: 0 }), [60, 35, 50, 25])
+
+// albero dei livelli
+const albero = [
+  { id: 'g', type: 'group', children: [{ id: 'a', box: [0, 0, 10, 10] }, { id: 'b', box: [0, 0, 50, 50] }] },
+  { id: 'h', type: 'group', visible: false, children: [{ id: 'c', box: [0, 0, 99, 99] }] },
+  { id: 'z', box: [0, 0, 200, 200] },
+]
+assert.deepEqual(flatLayers(albero).map(l => l.id + l.depth), ['g0', 'a1', 'b1', 'h0', 'c1', 'z0'])
+assert.deepEqual(flatLayers([{ ...albero[0], collapsed: true }], true).map(l => l.id), ['g'])
+assert.equal(hitLayerDeep(albero, { x: 5, y: 5 }).id, 'a')
+assert.equal(hitLayerDeep(albero, { x: 90, y: 90 }).id, 'z')
+assert.equal(findLayer(albero, 'b').parent, 'g')
+assert.deepEqual(siblingsOf(albero, 'b').map(l => l.id), ['a', 'b'])
 
 console.log('test-util ok')

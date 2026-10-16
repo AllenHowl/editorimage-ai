@@ -73,7 +73,7 @@ function EffectEditor({ layer, effect, index, catalog, run }) {
   )
 }
 
-export default function Properties({ project, layer, catalog, run, selection, onAI }) {
+export default function Properties({ project, layer, catalog, run, selection, onAI, blendModes, openDialog, maskMode }) {
   if (!project) return null
   if (!layer) return (
     <div className="props">
@@ -87,10 +87,14 @@ export default function Properties({ project, layer, catalog, run, selection, on
         <label className="check"><input type="checkbox" checked={project.background === 'transparent'}
           onChange={e => run('set_document', { background: e.target.checked ? 'transparent' : '#ffffff' })} /> transparent</label>
       </div>
-      <button onClick={() => {
-        const w = prompt('New width in px (proportions kept):', project.width)
-        if (w) run('resize_image', { width: +w })
-      }}>Resize image…</button>
+      <div className="row wrap">
+        <button onClick={() => {
+          const w = prompt('New width in px (proportions kept):', project.width)
+          if (w) run('resize_image', { width: +w })
+        }}>Resize image…</button>
+        <button onClick={() => openDialog('expand')}><Icon name="expand" size={13} /> Expand canvas…</button>
+        <button onClick={() => openDialog('describe', {})}><Icon name="eye2" size={13} /> Describe</button>
+      </div>
       <p className="hint">Select a layer to edit it. Drag a box with the selection tool to mask, crop or remove things.</p>
     </div>
   )
@@ -108,10 +112,15 @@ export default function Properties({ project, layer, catalog, run, selection, on
         onCommit={v => run('set_layer', { layer: L, opacity: v })} />
       <label className="numfield wide"><span>Blend</span>
         <select value={layer.blend || 'normal'} onChange={e => run('set_layer', { layer: L, blend: e.target.value })}>
-          {['normal', 'multiply', 'screen', 'overlay', 'soft_light', 'hard_light', 'darken', 'lighten', 'difference',
-            'exclusion', 'color_dodge', 'color_burn', 'add', 'subtract'].map(b => <option key={b} value={b}>{titleCase(b)}</option>)}
+          {(layer.type === 'group' ? ['pass_through'] : []).concat(blendModes || ['normal'])
+            .map(b => <option key={b} value={b}>{b === 'add' ? 'Linear dodge (add)' : titleCase(b)}</option>)}
         </select>
       </label>
+      {layer.type !== 'group' && <label className="check" title="Show this layer only where the layer below has pixels">
+        <input type="checkbox" checked={!!layer.clip} onChange={e => run('set_layer', { layer: L, clip: e.target.checked })} /> Clip to layer below</label>}
+      {layer.type === 'group' && <p className="hint">
+        {layer.blend === 'pass_through' ? 'Pass through: adjustments inside the group affect everything below it.'
+          : 'Isolated: adjustments inside the group affect only the group.'}</p>}
 
       {box && <>
         <h5>Transform</h5>
@@ -172,16 +181,24 @@ export default function Properties({ project, layer, catalog, run, selection, on
 
       <h5>Mask</h5>
       {layer.mask ? <>
-        <div className="row">
-          <span className="tag">{layer.mask.kind}{layer.mask.invert ? ' · inverted' : ''}</span>
+        <div className="row wrap">
+          <span className="tag">{layer.mask.kind}{layer.mask.invert ? ' · inverted' : ''}{layer.mask.strokes ? ` · ${layer.mask.strokes} strokes` : ''}</span>
           <button onClick={() => run('update_mask', { layer: L, invert: !layer.mask.invert })}>Invert</button>
+          {layer.mask.strokes > 0 && <button title="Remove the last brush stroke on the mask"
+            onClick={() => run('remove_mask_stroke', { layer: L })}>Undo stroke</button>}
           <button onClick={() => run('remove_mask', { layer: L })}>Remove</button>
         </div>
+        <p className="hint">{maskMode ? 'Brush and eraser are painting on this mask (black hides, white reveals).'
+          : 'Pick the brush and switch “Paint on: mask” to refine it.'}</p>
         <Slider label="Feather" value={layer.mask.feather || 0} min={0} max={200} step={1}
           onCommit={v => run('update_mask', { layer: L, feather: v })} />
       </> : <div className="row">
         <button disabled={!selection} title="Use the current selection as mask"
           onClick={() => run('set_mask', { layer: L, kind: selection.kind, box: selection.box, feather: 0 })}>From selection</button>
+        <button title="A mask to paint with the brush (starts fully visible)"
+          onClick={() => run('set_mask', { layer: L, kind: 'paint' })}>Paint mask</button>
+        <button title="A mask to paint that starts fully hidden: paint to reveal"
+          onClick={() => run('set_mask', { layer: L, kind: 'paint', hide_all: true })}>Hide all</button>
         {layer.type === 'image' && <button onClick={() => onAI('remove_background', { layer: L })}><Icon name="wand" size={13} /> Remove BG</button>}
       </div>}
 
@@ -190,6 +207,10 @@ export default function Properties({ project, layer, catalog, run, selection, on
         <div className="row wrap">
           <button onClick={() => onAI('auto_enhance', { layer: L })}><Icon name="sparkle" size={13} /> Enhance</button>
           <button onClick={() => onAI('upscale', { layer: L, factor: 2 })}>Upscale ×2</button>
+          <button title="Image-to-image: redo this layer following a prompt" onClick={() => openDialog('edit', { layer: L })}>
+            <Icon name="sparkle" size={13} /> Edit with AI…</button>
+          <button title="Image-to-text: a vision model describes this layer" onClick={() => openDialog('describe', { layer: L })}>
+            <Icon name="eye2" size={13} /> Describe</button>
           <button onClick={() => run('rasterize_layer', { layer: L })} title="Bake effects and mask into pixels">Rasterize</button>
         </div>
       </>}

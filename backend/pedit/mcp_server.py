@@ -30,8 +30,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 from PIL import Image as PILImage
 from PIL import ImageDraw
 
-from . import __version__, ai, analyze, comfy, presets, render, segnalazioni
+from . import __version__, ai, analyze, cloud, comfy, presets, render, segnalazioni
 from . import effects as fx
+from .model import BLEND_MODES
 from .store import PRESETS, EditError, Store
 
 ISTRUZIONI = """\
@@ -72,9 +73,19 @@ misura prima di correggere, non correggere "a occhio" una foto gia' bruciata.
    Su una foto movimentata: stroke o drop_shadow, o una forma dietro.
 4. Composizione: allinea con align_layer invece di calcolare a mano;
    terzi e margini coerenti valgono piu' di qualunque effetto.
-5. IA locale: remove_background (soggetto), inpaint senza prompt per togliere
-   oggetti, inpaint con prompt / generate_image / upscale con ComfyUI. ai_status
-   dice cosa e' disponibile su questa macchina: chiedilo prima di promettere.
+5. IA: remove_background (soggetto), inpaint senza prompt per togliere
+   oggetti (o con points = pennello correttivo), inpaint con prompt /
+   generate_image / edit_image (image-to-image) / expand_canvas / upscale con
+   ComfyUI o con un servizio in rete (backend=openai, gemini, stability,
+   openrouter, replicate...). describe_image fa image-to-text. ai_status dice
+   cosa e' disponibile qui: chiedilo prima di promettere. I servizi in rete
+   costano all'utente: backend="auto" li usa solo se ne ha scelto uno come
+   predefinito; nominarne uno esplicitamente solo se l'utente lo chiede.
+6. Livelli come in Photoshop: group_layers / move_layer(into=gruppo) per i
+   gruppi, set_layer(clip=true) per la maschera di ritaglio sul livello sotto,
+   mask_stroke per dipingere una maschera (hide/reveal, anche per rifinire uno
+   scontorno), paint_stroke(source=[x,y]) e' il timbro clone (heal=true il
+   pennello correttivo).
 
 ECONOMIA. Ogni chiamata rilegge tutto il contesto. batch applica una lista di
 modifiche in un colpo solo (un undo), e con look=true restituisce anche
@@ -139,7 +150,7 @@ def _snello(schema: Any) -> Any:
 STRUMENTI: dict[str, Any] = {}
 # strumenti che non hanno senso dentro batch (anteprime, export, interfaccia)
 _FUORI_BATCH = {"batch", "preview", "export_image", "open_ui", "close_ui", "undo", "redo",
-                "project_create", "project_open", "report_issue", "ai_status"}
+                "project_create", "project_open", "report_issue", "ai_status", "ai_services", "describe_image"}
 
 _CTX: contextvars.ContextVar[Context | None] = contextvars.ContextVar("pedit_ctx", default=None)
 BATTITO_S = 15.0
@@ -390,19 +401,26 @@ def add_adjustment(type: str | None = None, params: dict | None = None, effects:
 
 @_strumento()
 def paint_stroke(points: list, layer: str | None = None, color: str = "#000000", size: float = 12,
-                 hardness: float = 0.8, opacity: float = 1.0, erase: bool = False,
-                 project: str | None = None) -> dict:
+                 hardness: float = 0.8, opacity: float = 1.0, erase: bool = False, source: list | None = None,
+                 heal: bool = False, project: str | None = None) -> dict:
     """Brush stroke: polyline [[x,y],...] in document px on a paint layer (created if missing).
-    erase=true erases previous strokes of that layer."""
-    return _store(project).paint_stroke(points, layer, color, size, hardness, opacity, erase)
+    erase=true erases previous strokes of that layer. Clone stamp: source=[x,y] is where to copy from
+    for the first point (copies everything below the layer); heal=true = healing brush (matches the
+    light and color of the destination)."""
+    return _store(project).paint_stroke(points, layer, color, size, hardness, opacity, erase, source=source,
+                                        heal=heal)
 
 
 @_strumento()
 def set_layer(layer: str, name: str | None = None, visible: bool | None = None, locked: bool | None = None,
-              opacity: float | None = None, blend: str | None = None, project: str | None = None) -> dict:
-    """Layer name, visibility, lock, opacity 0..1, blend mode: normal, multiply, screen, overlay,
-    soft_light, hard_light, darken, lighten, difference, exclusion, color_dodge, color_burn, add, subtract."""
-    return _store(project).set_layer(layer, name, visible, locked, opacity, blend)
+              opacity: float | None = None, blend: str | None = None, clip: bool | None = None,
+              project: str | None = None) -> dict:
+    """Layer name, visibility, lock, opacity 0..1, clip (clipping mask onto the layer below), blend mode:
+    normal, dissolve, darken, multiply, color_burn, linear_burn, darker_color, lighten, screen,
+    color_dodge, add (linear dodge), lighter_color, overlay, soft_light, hard_light, vivid_light,
+    linear_light, pin_light, hard_mix, difference, exclusion, subtract, divide, hue, saturation, color,
+    luminosity; groups also pass_through."""
+    return _store(project).set_layer(layer, name, visible, locked, opacity, blend, clip)
 
 
 @_strumento()
@@ -452,9 +470,24 @@ def set_fill(layer: str, kind: str | None = None, color: str | None = None, colo
 
 
 @_strumento()
-def move_layer(layer: str, to: str | None = None, index: int | None = None, project: str | None = None) -> dict:
-    """Reorder: to=up/down/top/bottom, or index (0 = bottom)."""
-    return _store(project).move_layer(layer, index, to)
+def move_layer(layer: str, to: str | None = None, index: int | None = None, into: str | None = None,
+               project: str | None = None) -> dict:
+    """Reorder within its list: to=up/down/top/bottom, or index (0 = bottom). into=<group> moves it
+    inside a group; into="root" takes it out of its group."""
+    return _store(project).move_layer(layer, index, to, into)
+
+
+@_strumento()
+def group_layers(layers: list[str], name: str | None = None, project: str | None = None) -> dict:
+    """Put layers (same level) into a new group. Groups have their own opacity, blend (default
+    pass_through), mask and effects; an adjustment inside a non pass-through group affects only the group."""
+    return _store(project).group_layers(layers, name)
+
+
+@_strumento()
+def ungroup(layer: str, project: str | None = None) -> dict:
+    """Dissolve a group: its layers go back in its place."""
+    return _store(project).ungroup(layer)
 
 
 @_strumento()
@@ -542,10 +575,20 @@ def apply_look(name: str, layer: str | None = None, project: str | None = None) 
 
 @_strumento()
 def set_mask(layer: str, kind: str = "rect", box: list | None = None, path: str | None = None,
-             invert: bool = False, feather: float = 0, density: float = 1.0, project: str | None = None) -> dict:
-    """Layer mask (white = visible). kind rect/ellipse with box=[x,y,w,h] in document px, or image
-    with path (grayscale or alpha file, aligned to the layer content). feather = soft edge px."""
-    return _store(project).set_mask(layer, kind, box, None, path, invert, feather, density)
+             invert: bool = False, feather: float = 0, density: float = 1.0, hide_all: bool = False,
+             project: str | None = None) -> dict:
+    """Layer mask (white = visible). kind rect/ellipse with box=[x,y,w,h] in document px, image
+    with path (grayscale or alpha file, aligned to the layer content), or paint (to paint with
+    mask_stroke; hide_all=true starts fully hidden). feather = soft edge px."""
+    return _store(project).set_mask(layer, kind, box, None, path, invert, feather, density, hide_all)
+
+
+@_strumento()
+def mask_stroke(layer: str, points: list, mode: str = "hide", size: float = 40, hardness: float = 0.6,
+                opacity: float = 1.0, project: str | None = None) -> dict:
+    """Paint on a layer's mask: mode hide or reveal, polyline [[x,y],...] in document px. Works on any
+    mask (refine an AI cut-out); a layer without a mask gets a paint mask."""
+    return _store(project).mask_stroke(layer, points, mode, size, hardness, opacity)
 
 
 @_strumento()
@@ -576,6 +619,17 @@ def crop_canvas(x: float, y: float, width: float, height: float, project: str | 
 def resize_canvas(width: int, height: int, anchor: str = "center", project: str | None = None) -> dict:
     """Change canvas size without scaling content. anchor: center, top, bottom_left, ..."""
     return _store(project).resize_canvas(width, height, anchor)
+
+
+@_strumento()
+async def expand_canvas(left: float = 0, top: float = 0, right: float = 0, bottom: float = 0,
+                        prompt: str | None = None, backend: str = "auto", seed: int | None = None,
+                        project: str | None = None) -> dict:
+    """Generative expand: add px on each side and fill the new borders (a new top layer masked to them).
+    No prompt = classic fill (fine for sky, walls, plain backgrounds); with prompt or an AI service =
+    generative."""
+    s = _store(project)
+    return await _off(s.expand_canvas, left, top, right, bottom, prompt, backend, seed)
 
 
 @_strumento()
@@ -659,17 +713,34 @@ async def review_image(project: str | None = None) -> dict:
 
 @_strumento()
 async def ai_status() -> dict:
-    """What AI is available here: background removal, inpaint backend, ComfyUI (generation, upscale)."""
+    """What AI is available here: background removal, inpaint backend, ComfyUI (generation, upscale),
+    online services with a key (online.ready: service -> tasks) and the default one."""
     return await _off(ai.status)
 
 
 @_strumento()
+def ai_services(service: str | None = None, models: dict | None = None, url: str | None = None,
+                default: bool | None = None) -> dict:
+    """Online AI services (OpenAI, Gemini, Stability, OpenRouter, Replicate, Anthropic, Ollama, custom):
+    which are ready, for which tasks (generate, edit, inpaint, describe, upscale, cutout), with which
+    models. With service: set its models {task: model}, url, or default=true (used by backend="auto").
+    API keys are pasted by the user in the editor (AI models) or set as env vars, never here."""
+    if service:
+        return cloud.imposta(service, None, models, url, default)
+    st = cloud.stato()
+    return {"default": st["default"] or None,
+            "services": [{k: x[k] for k in ("id", "pronto", "fa", "modelli")} | ({"why": x["motivo"]} if x["motivo"] else {})
+                         for x in st["providers"]]}
+
+
+@_strumento()
 async def remove_background(layer: str, keep: str = "subject", model: str = "isnet-general-use",
-                            project: str | None = None) -> dict:
+                            backend: str = "local", project: str | None = None) -> dict:
     """AI cut-out as a layer MASK (the photo stays intact). keep=background inverts it.
-    Models: isnet-general-use, u2net, u2net_human_seg (people), birefnet-general (best, slow)."""
+    Models: isnet-general-use, u2net, u2net_human_seg (people), birefnet-general (best, slow).
+    backend=stability uses the online service instead of the local model."""
     s = _store(project)
-    return await _off(s.remove_background, layer, keep, model)
+    return await _off(s.remove_background, layer, keep, model, backend)
 
 
 @_strumento()
@@ -682,27 +753,49 @@ async def subject_box(layer: str, project: str | None = None) -> dict:
 @_strumento()
 async def inpaint(box: list | None = None, prompt: str | None = None, ellipse: bool = False,
                   mask_path: str | None = None, feather: float = 6, backend: str = "auto",
-                  seed: int | None = None, project: str | None = None) -> dict:
-    """Remove an object / fill an area (box=[x,y,w,h] document px, or mask_path). No prompt =
-    remove (classic fill). With prompt = generative fill (needs ComfyUI). The result is a patch on
-    a NEW layer with a soft mask: move, fade or delete it like any layer."""
+                  seed: int | None = None, points: list | None = None, size: float = 30,
+                  project: str | None = None) -> dict:
+    """Remove an object / fill an area: box=[x,y,w,h] document px, mask_path, or points=[[x,y],...] +
+    size (a brush stroke: spot healing). No prompt = remove (classic fill). With prompt = generative
+    fill (ComfyUI or an online service: backend=openai, gemini, stability, ...). The result is a patch
+    on a NEW layer with a soft mask: move, fade or delete it like any layer."""
     s = _store(project)
-    return await _off(s.inpaint, box, prompt, ellipse, mask_path, feather, backend, seed)
+    return await _off(s.inpaint, box, prompt, ellipse, mask_path, feather, backend, seed, None, points, size)
 
 
 @_strumento()
 async def generate_image(prompt: str, width: int | None = None, height: int | None = None,
                          negative: str | None = None, seed: int | None = None, fit: str = "cover",
-                         project: str | None = None) -> dict:
-    """Text-to-image with the local ComfyUI, placed on a new layer (fit cover/contain)."""
+                         backend: str = "auto", project: str | None = None) -> dict:
+    """Text-to-image with the local ComfyUI or an online service (backend=openai, gemini, stability,
+    openrouter, replicate), placed on a new layer (fit cover/contain)."""
     s = _store(project)
-    return await _off(s.generate_image, prompt, width, height, negative, seed, fit)
+    return await _off(s.generate_image, prompt, width, height, negative, seed, fit, None, backend)
+
+
+@_strumento()
+async def edit_image(prompt: str, layer: str | None = None, box: list | None = None, strength: float = 0.6,
+                     backend: str = "auto", seed: int | None = None, project: str | None = None) -> dict:
+    """Image-to-image: redo an image layer (or a box of the picture, or all of it) following the prompt
+    ("make it winter", "watercolor style"). strength 0..1: low keeps it, high reinvents it. The result
+    is a NEW layer above, same place and mask; the original stays below."""
+    s = _store(project)
+    return await _off(s.edit_image, prompt, layer, box, strength, backend, seed)
+
+
+@_strumento()
+async def describe_image(layer: str | None = None, box: list | None = None, question: str | None = None,
+                         backend: str = "auto", project: str | None = None) -> dict:
+    """Image-to-text with a vision model (online with a key, or Ollama): describes the picture, a layer
+    or a box, or answers question about it. Does not change the document."""
+    s = _store(project)
+    return await _off(s.describe_image, layer, box, question, backend)
 
 
 @_strumento()
 async def upscale(layer: str, factor: float = 2.0, backend: str = "auto", project: str | None = None) -> dict:
-    """More real pixels for an image layer (ComfyUI model if available, else Lanczos+sharpen).
-    Its size on the canvas does not change."""
+    """More real pixels for an image layer (ComfyUI model, or backend=stability online, else
+    Lanczos+sharpen). Its size on the canvas does not change."""
     s = _store(project)
     return await _off(s.upscale, layer, factor, backend)
 
@@ -737,7 +830,7 @@ def comfy_settings(url: str | None = None, checkpoint: str | None = None, upscal
 @_strumento()
 async def export_image(path: str, quality: int = 92, scale: float = 1.0, transparent: bool = False,
                        box: list | None = None, project: str | None = None) -> dict:
-    """Write the image file (.png .jpg .webp .tif). ONLY when the user asks for it.
+    """Write the image file (.png .jpg .webp .avif .tif). ONLY when the user asks for it.
     transparent=true keeps alpha (png/webp). box exports a region."""
     s = _store(project)
     api = sys.modules.get("pedit.api")
