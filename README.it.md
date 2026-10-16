@@ -11,8 +11,6 @@
 
 <p align="center"><img src="docs/promo.gif" alt="pedit promo: un agente IA modifica un'immagine via MCP" width="720"/></p>
 
-<p align="center"><img src="docs/screenshot.jpg" alt="pedit, editor di immagini con IA: pannello livelli con gruppo e maschera di ritaglio" width="900"/></p>
-
 Dici cosa vuoi a parole — *"togli lo sfondo, allunga il cielo, rendila piu' calda"* — e lavora sui
 livelli veri mentre guardi; puoi riprendere il mouse e correggere qualunque cosa in qualunque momento.
 Funziona con **Claude Code, Cursor, Codex, VS Code** e qualunque client [Model Context Protocol](https://modelcontextprotocol.io).
