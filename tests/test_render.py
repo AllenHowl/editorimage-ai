@@ -1,4 +1,4 @@
-"""Il render guardato nei pixel: non basta che non dia errore, deve fare cio' che promette."""
+"""检查渲染像素，不仅要求无异常，还需验证实际效果符合预期。"""
 
 import numpy as np
 import pytest
@@ -93,8 +93,8 @@ def test_adjustment_affects_below_only():
     p.layers.append(Layer(id="A", type="adjustment", effects=[Effect(type="invert", params={})]))
     p.layers.append(Layer(id="S", type="shape", x=0, y=0, shape=Shape(w=10, h=10, fill="#ff0000")))
     img = render.render(p)
-    assert px(img, 30, 20)[0] == pytest.approx(127, abs=2)    # grigio invertito
-    assert px(img, 4, 4)[:3] == (255, 0, 0)                   # sopra la regolazione: intatto
+    assert px(img, 30, 20)[0] == pytest.approx(127, abs=2)    # 灰色反相。
+    assert px(img, 4, 4)[:3] == (255, 0, 0)                   # 调整图层上方的内容保持不变。
 
 
 def test_shape_lands_at_xy():
@@ -143,7 +143,7 @@ def test_rotation_keeps_center():
     p = Project(width=100, height=100, background="#000000")
     p.layers.append(Layer(id="S", type="shape", x=30, y=45, rotation=90, shape=Shape(w=40, h=10, fill="#ffffff")))
     img = render.render(p)
-    # ruotata di 90 gradi attorno al centro (50, 50): ora e' verticale
+    # 围绕中心（50,50）旋转 90 度后变为竖直方向。
     assert px(img, 50, 32)[0] > 200 and px(img, 35, 50)[0] < 30
 
 

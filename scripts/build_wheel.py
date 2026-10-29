@@ -1,15 +1,14 @@
-"""Costruisce il pacchetto da pubblicare su PyPI.
+"""构建用于发布到 PyPI 的安装包。
 
-Un solo passaggio in piu' rispetto a ``python -m build``, ma indispensabile:
-l'interfaccia web va copiata *dentro* il pacchetto. Chi installa da PyPI non ha
-Node e non puo' compilarla; se il pacchetto partisse senza, ``pedit ui`` e
-``open_ui`` aprirebbero una pagina vuota.
+在 ``python -m build`` 之前，必须把编译后的网页界面复制到包内。
+PyPI 用户不需要安装 Node；如果缺少界面资源，``pedit ui`` 和
+``open_ui`` 会打开空白页面。
 
-    python scripts/build_wheel.py            # compila la UI e costruisce
-    python scripts/build_wheel.py --no-ui    # riusa frontend/dist come sta
+    python scripts/build_wheel.py            # 编译界面并构建安装包
+    python scripts/build_wheel.py --no-ui    # 复用现有 frontend/dist
 
-Escono ``dist/pedit_mcp-*.whl`` e ``.tar.gz``. Per pubblicare a mano:
-``python -m twine upload dist/*`` (di norma ci pensa GitHub Actions al tag).
+输出 ``dist/pedit_mcp-*.whl`` 和 ``.tar.gz``。手动发布可运行
+``python -m twine upload dist/*``，通常由 GitHub Actions 在打标签后处理。
 """
 
 from __future__ import annotations
@@ -68,8 +67,8 @@ def main() -> int:
     esegui([sys.executable, "-m", "build"], RADICE)
 
     if not a.keep:
-        # in sviluppo la copia dentro il pacchetto avrebbe la precedenza su
-        # frontend/dist, e `npm run build` sembrerebbe non avere effetto
+        # 开发时包内界面副本会优先于 frontend/dist，
+        # 导致 npm run build 看起来没有生效，因此完成后移除副本。
         shutil.rmtree(DENTRO, ignore_errors=True)
 
     print("\nfatto:")

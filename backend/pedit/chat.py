@@ -1,9 +1,8 @@
-"""Assistente in chat dentro l'editor.
+"""编辑器内置聊天助手。
 
-I suoi strumenti *sono* quelli del server MCP (``mcp_server.STRUMENTI``), con
-gli stessi schemi: un solo elenco da mantenere, e quello che fa l'assistente
-nella UI e' esattamente quello che farebbe un agente esterno. Ogni modifica
-passa da ``Store``, compare nell'editor e si annulla con Ctrl+Z.
+工具直接复用 MCP 服务的 ``mcp_server.STRUMENTI`` 及其参数结构，
+只需维护一份列表。内置助手和外部智能体调用相同操作，
+所有修改均通过 ``Store``，实时显示在编辑器中，并可按 Ctrl+Z 撤销。
 """
 
 from __future__ import annotations
@@ -18,24 +17,23 @@ from typing import Any, Callable, Iterator
 from . import llm
 from . import mcp_server as ms
 
-SYSTEM = """Sei l'assistente di ritocco dentro pedit, un editor di immagini a livelli
-non distruttivo (tipo Photoshop). Lavori sul documento aperto: ogni tuo strumento e'
-la stessa operazione dei pulsanti, compare subito nell'editor e si annulla con Ctrl+Z.
+SYSTEM = """你是 pedit 内置的修图助手。pedit 是类似 Photoshop 的非破坏式图层编辑器。
+你操作的是当前打开的文档，工具与界面按钮调用相同的操作，结果会立即显示，
+并可按 Ctrl+Z 撤销。
 
-Regole:
-- GUARDA: usa preview (grid=true per leggere le coordinate in pixel) prima di
-  decidere posizioni e riquadri, e dopo un blocco di modifiche per controllarle.
-- Misura prima di correggere (analyze_image), poi correggi poco: base (esposizione,
-  bilanciamento) prima dello stile (apply_look).
-- Non distruttivo: livelli di regolazione, maschere, toppe su livelli nuovi.
-- batch per tante modifiche gia' decise: una chiamata, un undo.
-- Prima di dire che hai finito: review_image.
-- Non esportare mai di tua iniziativa: export_image solo se l'utente lo chiede.
-- ai_status dice cosa c'e' (scontorno, ComfyUI): non promettere cio' che manca.
+规则：
+- 查看结果：决定位置和边界前使用 preview，grid=true 可查看像素坐标；
+  每组修改后再次预览检查。
+- 修正前先用 analyze_image 测量，适度调整；先修正曝光和白平衡，再用 apply_look 添加风格。
+- 保持非破坏式编辑：使用调整图层、蒙版及新图层补丁。
+- 使用 batch 合并已确定的修改，一次调用、一步撤销。
+- 宣布完成前调用 review_image。
+- 禁止自行导出：仅在用户要求时调用 export_image。
+- 先用 ai_status 确认可用能力，不承诺未配置的抠图或 ComfyUI 功能。
 
-Rispondi nella lingua dell'utente, breve. Non ripetere cio' che l'utente vede gia'."""
+默认使用简体中文简洁回答；用户明确指定其他语言时遵从其要求。不要重复界面已显示的内容。"""
 
-# strumenti che dalla chat non hanno senso: l'interfaccia e' gia' aperta
+# 界面已经打开，聊天中无需提供这些工具。
 _ESCLUSI = {"open_ui", "close_ui", "project_create", "project_open"}
 
 
@@ -48,7 +46,7 @@ def available() -> dict:
 
 
 def build_tools() -> list[dict]:
-    """Schemi in formato Anthropic, presi dal server MCP (senza ``project``)."""
+    """从 MCP 服务提取 Anthropic 格式的工具结构，去掉 ``project`` 参数。"""
     out = []
     for nome in ms.STRUMENTI:
         if nome in _ESCLUSI:
@@ -70,9 +68,9 @@ def build_tools() -> list[dict]:
 
 
 def execute(store: Any, name: str, args: dict) -> str | tuple[str, list[dict]]:
-    """Esegue uno strumento sul documento aperto. Le immagini tornano a parte."""
+    """在当前文档上执行工具，图片结果单独返回。"""
     if name in _ESCLUSI or name not in ms.STRUMENTI:
-        raise ValueError(f"unknown tool: {name}")
+        raise ValueError(f"未知工具：{name}")
     ms._current[0] = store
     fn = ms.STRUMENTI[name]
     args = {k: v for k, v in (args or {}).items() if k != "project"}
@@ -90,11 +88,11 @@ def execute(store: Any, name: str, args: dict) -> str | tuple[str, list[dict]]:
 
 def _state_block(store: Any) -> str:
     s = store.summary()
-    return "Stato del documento (livelli dall'alto):\n" + json.dumps(s, ensure_ascii=False, separators=(",", ":"))
+    return "文档状态（图层从上到下排列）：\n" + json.dumps(s, ensure_ascii=False, separators=(",", ":"))
 
 
 def riferimenti(store: Any, refs: list[dict]) -> tuple[str, list[dict]]:
-    """Zone indicate dall'utente sull'immagine: testo con le coordinate + l'immagine col riquadro."""
+    """将用户指示的图片区域转换为坐标文字和带选框的图片。"""
     from PIL import ImageDraw
 
     from . import render
@@ -109,13 +107,13 @@ def riferimenti(store: Any, refs: list[dict]) -> tuple[str, list[dict]]:
     for i, r in enumerate(refs, 1):
         if r.get("type") == "area":
             x, y, w, h = r["box"]
-            righe.append(f"[{i}] area x={x:.0f} y={y:.0f} w={w:.0f} h={h:.0f} (pixel del documento)")
+            righe.append(f"[{i}] 选区 x={x:.0f} y={y:.0f} w={w:.0f} h={h:.0f}（文档像素）")
             d.rectangle([x * k, y * k, (x + w) * k, (y + h) * k], outline=(255, 0, 0), width=3)
             d.text((x * k + 4, y * k + 4), str(i), fill=(255, 0, 0))
         elif r.get("type") == "layer":
-            righe.append(f"[{i}] livello {r.get('id')} ({r.get('name', '')})")
+            righe.append(f"[{i}] 图层 {r.get('id')} ({r.get('name', '')})")
         elif r.get("type") == "file":
-            righe.append(f"[{i}] file allegato: {r.get('path')}")
+            righe.append(f"[{i}] 附件文件：{r.get('path')}")
             if Path(r.get("path", "")).suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
                 try:
                     immagini.append(llm.immagine(r["path"]))
@@ -128,12 +126,12 @@ def riferimenti(store: Any, refs: list[dict]) -> tuple[str, list[dict]]:
         img.save(buf, "PNG")
         immagini.insert(0, {"type": "image", "mime": "image/png", "path": "(riferimenti)",
                             "b64": base64.b64encode(buf.getvalue()).decode("ascii")})
-    return "Riferimenti indicati dall'utente:\n" + "\n".join(righe), immagini
+    return "用户指定的引用：\n" + "\n".join(righe), immagini
 
 
 def run(store: Any, stato_chat: dict, question: str, refs: list[dict] | None = None,
         mcp_url: str | None = None, fermo: Callable[[], bool] = lambda: False) -> Iterator[dict]:
-    """Un turno di chat: flusso di eventi text/tool/tool_done/tool_error/error/done."""
+    """执行一轮聊天，流式返回 text/tool/tool_done/tool_error/error/done 事件。"""
     try:
         p, cfg = llm.attivo()
     except RuntimeError as exc:
@@ -142,16 +140,16 @@ def run(store: Any, stato_chat: dict, question: str, refs: list[dict] | None = N
     testo_rif, immagini = riferimenti(store, refs or [])
     contenuto: list[dict] = [*immagini, {"type": "text", "text": "\n\n".join(
         x for x in (_state_block(store), testo_rif, question) if x)}]
-    # cambiando motore la cronologia non e' compatibile: si riparte
+    # 切换引擎后历史格式不兼容，重新开始会话。
     if stato_chat.get("motore") != p["id"]:
         stato_chat.clear()
         stato_chat["motore"] = p["id"]
     history = stato_chat.setdefault("history", [])
     if p["tipo"] == "claude_code":
         if not mcp_url:
-            yield {"type": "error", "message": "the editor's MCP server is not running"}
+            yield {"type": "error", "message": "编辑器的 MCP 服务尚未运行"}
             return
-        # Claude Code legge le immagini come file
+        # Claude Code 通过文件读取图片。
         for c in contenuto:
             if c["type"] == "image" and c.get("path", "").startswith("("):
                 f = store.assets_dir() / "chat_riferimenti.png"

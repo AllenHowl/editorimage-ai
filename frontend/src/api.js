@@ -1,5 +1,5 @@
-// Trasporto verso il backend. Nessuna logica di editing qui: ogni modifica e' un
-// metodo di Store chiamato per nome (/api/op/<nome>).
+// 与后端通信，此处不实现编辑逻辑，每项修改都按名称调用
+// Store 方法（/api/op/<方法名>）。
 
 export async function api(path, opts = {}) {
   const init = { method: opts.method || (opts.body !== undefined ? 'POST' : 'GET'), headers: {} }
@@ -21,7 +21,7 @@ export async function api(path, opts = {}) {
 
 export const op = (name, body = {}) => api(`/api/op/${name}`, { body })
 
-// flusso NDJSON della chat: un evento per riga
+// 聊天使用 NDJSON 流，每行一个事件。
 export async function chatStream(body, onEvent, signal) {
   const res = await fetch('/api/chat', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
@@ -38,7 +38,7 @@ export async function chatStream(body, onEvent, signal) {
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i).trim()
       buf = buf.slice(i + 1)
-      if (line) { try { onEvent(JSON.parse(line)) } catch { /* riga rotta: si salta */ } }
+      if (line) { try { onEvent(JSON.parse(line)) } catch { /* 跳过损坏的事件行。 */ } }
     }
   }
 }

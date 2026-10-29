@@ -136,9 +136,9 @@ Le regole di ritocco stanno in `mcp_server.ISTRUZIONI` e arrivano a qualunque cl
 
 ## 5. Convenzioni della repo
 
-- Codice e commenti **in italiano**. Quello che legge chi usa l'editor e' **in inglese**: testi
-  della UI, errori, descrizioni di effetti, look e strumenti. `README.md` in inglese,
-  `README.it.md` in italiano: se cambi uno, allinea l'altro.
+- 代码注释和文档字符串使用**简体中文**。界面文案、错误提示、效果、风格和工具说明
+  也使用**简体中文**。接口参数、文档字段、枚举值和模型 ID 保持原有标识，中文名称仅用于展示。
+  `README.md` 保留英文，`README.it.md` 保留意大利文；修改共同说明时同步两份文档。
 - Niente dipendenze nuove senza motivo. Il core sta su numpy, Pillow, FastAPI e mcp. Gli extra
   veri: `ai` (rembg, onnxruntime, OpenCV) e `chat` (anthropic). `tests/test_dipendenze.py` pretende
   che ogni import del backend sia dichiarato in `pyproject.toml`.

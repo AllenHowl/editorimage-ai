@@ -1,28 +1,23 @@
-"""Modelli di immagini via API, con la chiave di chi usa l'editor.
+"""使用编辑器用户的密钥调用图片模型 API。
 
-Accanto all'IA locale (rembg, OpenCV, ComfyUI) pedit sa usare servizi in rete:
-generazione da testo, modifica da immagine (image-to-image), riempimento con
-maschera, descrizione di un'immagine (image-to-text), upscale e scontorno.
-Ogni servizio dichiara in ``fa`` i compiti che sa fare e per ognuno un modello
-predefinito, che si cambia nelle impostazioni.
+在本地 AI（rembg、OpenCV、ComfyUI）之外，支持在线文生图、图生图、
+蒙版填充、图片描述、放大和抠图。每个服务在 ``fa`` 中声明支持的任务
+及各任务的默认模型，用户可在设置中修改。
 
-- ``openai``: GPT Image (``/images/generations`` e ``/images/edits``), visione
-  con ``/chat/completions``. Lo stesso protocollo vale per ``custom``: qualunque
-  servizio compatibile OpenAI (anche locale) con indirizzo e chiave;
-- ``gemini``: Google Gemini immagini ("Nano Banana") con ``generateContent``;
-- ``stability``: Stability AI v2beta (generate, inpaint, upscale, remove-background);
-- ``openrouter``: modelli di immagini via chat con ``modalities: ["image"]``;
-- ``replicate``: qualunque modello ``owner/nome`` (FLUX e simili);
-- ``anthropic``: Claude per descrivere le immagini;
-- ``ollama``: un modello di visione sul computer, senza chiave.
+- ``openai``：通过 ``/images/generations`` 和 ``/images/edits`` 调用 GPT Image，
+  通过 ``/chat/completions`` 调用视觉模型；``custom`` 支持任意兼容该协议的服务。
+- ``gemini``：通过 ``generateContent`` 调用 Google Gemini 图片模型（Nano Banana）。
+- ``stability``：Stability AI v2beta 的生成、填充、放大和移除背景接口。
+- ``openrouter``：使用 ``modalities: ["image"]`` 通过聊天接口调用图片模型。
+- ``replicate``：支持 ``owner/model`` 形式的模型，如 FLUX。
+- ``anthropic``：使用 Claude 描述图片。
+- ``ollama``：无需密钥的本机视觉模型。
 
-Le chiavi stanno in ``~/.pedit/ai_api.json``, mai nel documento. Se manca, vale
-quella dell'assistente (``llm.json``, stessi id) o la variabile d'ambiente: una
-chiave OpenAI incollata una volta serve alla chat e alle immagini.
+密钥保存在 ``~/.pedit/ai_api.json``，不会写入文档。缺少时使用同 ID 的
+助手配置（``llm.json``）或环境变量，一份密钥可供聊天和图片功能共用。
 
-Qui si parla con i servizi e basta: immagini PIL in entrata e in uscita. Dove
-mettere il risultato nel documento lo decide ``Store``. Le chiamate HTTP
-passano tutte da ``_http``, cosi' i test la sostituiscono e non vanno in rete.
+本模块仅与服务通信，输入和输出均为 PIL 图片；结果在文档中的位置由
+``Store`` 决定。所有 HTTP 请求均通过 ``_http``，测试可替换它以避免访问网络。
 """
 
 from __future__ import annotations
@@ -48,44 +43,44 @@ PROVIDERS: list[dict] = [
      "base": "https://api.openai.com/v1",
      "fa": {"generate": "gpt-image-1", "edit": "gpt-image-1", "inpaint": "gpt-image-1", "describe": "gpt-5-mini"},
      "suggeriti": ["gpt-image-1", "gpt-image-1-mini", "dall-e-3", "gpt-5", "gpt-5-mini"],
-     "nota": "Key from platform.openai.com. The same key as the assistant works."},
+     "nota": "从 platform.openai.com 获取密钥，可与助手共用。"},
     {"id": "gemini", "nome": "Google Gemini (Nano Banana)", "tipo": "gemini", "chiave": True, "env": "GEMINI_API_KEY",
      "base": "https://generativelanguage.googleapis.com/v1beta",
      "fa": {"generate": "gemini-2.5-flash-image", "edit": "gemini-2.5-flash-image",
             "inpaint": "gemini-2.5-flash-image", "describe": "gemini-2.5-flash"},
      "suggeriti": ["gemini-2.5-flash-image", "gemini-3-pro-image-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
-     "nota": "Key from aistudio.google.com"},
+     "nota": "从 aistudio.google.com 获取密钥。"},
     {"id": "stability", "nome": "Stability AI", "tipo": "stability", "chiave": True, "env": "STABILITY_API_KEY",
      "base": "https://api.stability.ai",
      "fa": {"generate": "core", "edit": "sd3.5-large", "inpaint": "inpaint", "upscale": "fast",
             "cutout": "remove-background"},
      "suggeriti": ["core", "ultra", "sd3.5-large", "sd3.5-large-turbo", "sd3.5-medium", "fast", "conservative"],
-     "nota": "Key from platform.stability.ai. Also does upscale and background removal."},
+     "nota": "从 platform.stability.ai 获取密钥，也支持放大和移除背景。"},
     {"id": "openrouter", "nome": "OpenRouter", "tipo": "openrouter", "chiave": True, "env": "OPENROUTER_API_KEY",
      "base": "https://openrouter.ai/api/v1",
      "fa": {"generate": "google/gemini-2.5-flash-image", "edit": "google/gemini-2.5-flash-image",
             "inpaint": "google/gemini-2.5-flash-image", "describe": "google/gemini-2.5-flash"},
      "suggeriti": ["google/gemini-2.5-flash-image", "openai/gpt-5-image", "google/gemini-2.5-flash"],
-     "nota": "One key for many image and vision models: openrouter.ai"},
+     "nota": "一个密钥可调用多种图片和视觉模型：openrouter.ai"},
     {"id": "replicate", "nome": "Replicate", "tipo": "replicate", "chiave": True, "env": "REPLICATE_API_TOKEN",
      "base": "https://api.replicate.com/v1",
      "fa": {"generate": "black-forest-labs/flux-schnell", "edit": "black-forest-labs/flux-kontext-pro",
             "inpaint": "black-forest-labs/flux-fill-pro"},
      "suggeriti": ["black-forest-labs/flux-schnell", "black-forest-labs/flux-1.1-pro",
                    "black-forest-labs/flux-kontext-pro", "black-forest-labs/flux-fill-pro"],
-     "nota": "Any owner/model from replicate.com (prompt, image, mask inputs)"},
-    {"id": "anthropic", "nome": "Anthropic (Claude vision)", "tipo": "anthropic", "chiave": True,
+     "nota": "支持 replicate.com 上 owner/model 格式的模型，输入可包含 prompt、image、mask。"},
+    {"id": "anthropic", "nome": "Anthropic（Claude 视觉模型）", "tipo": "anthropic", "chiave": True,
      "env": "ANTHROPIC_API_KEY", "base": "https://api.anthropic.com/v1",
      "fa": {"describe": "claude-sonnet-5-5"},
      "suggeriti": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
-     "nota": "Describes images. The same key as the assistant works."},
-    {"id": "ollama", "nome": "Ollama (on this computer)", "tipo": "openai", "chiave": False,
+     "nota": "用于描述图片，可与助手共用密钥。"},
+    {"id": "ollama", "nome": "Ollama（本机）", "tipo": "openai", "chiave": False,
      "base": "http://localhost:11434/v1", "fa": {"describe": "qwen2.5vl"},
      "suggeriti": ["qwen2.5vl", "llava", "gemma3"],
-     "nota": "A local vision model: ollama pull qwen2.5vl"},
-    {"id": "custom", "nome": "Other (OpenAI compatible)", "tipo": "openai", "chiave": True, "base": "",
+     "nota": "本地视觉模型，安装命令：ollama pull qwen2.5vl"},
+    {"id": "custom", "nome": "其他（兼容 OpenAI）", "tipo": "openai", "chiave": True, "base": "",
      "fa": {"generate": "", "edit": "", "inpaint": "", "describe": ""}, "suggeriti": [],
-     "nota": "Any service exposing /images/generations, /images/edits or /chat/completions"},
+     "nota": "支持提供 /images/generations、/images/edits 或 /chat/completions 接口的服务。"},
 ]
 
 
@@ -96,7 +91,7 @@ class CloudError(RuntimeError):
 def provider(pid: str) -> dict:
     p = next((p for p in PROVIDERS if p["id"] == pid), None)
     if p is None:
-        raise CloudError(f"unknown AI service {pid!r}; available: {', '.join(x['id'] for x in PROVIDERS)}")
+        raise CloudError(f"未知 AI 服务 {pid!r}；可选：{', '.join(x['id'] for x in PROVIDERS)}")
     return p
 
 
@@ -105,7 +100,7 @@ def ids() -> list[str]:
 
 
 # --------------------------------------------------------------------------
-# configurazione (solo su questa macchina)
+# 配置（仅保存在本机）。
 # --------------------------------------------------------------------------
 
 
@@ -139,10 +134,10 @@ def salva(cfg: dict) -> None:
 
 def imposta(provider_id: str, chiave: str | None = None, modelli: dict | None = None,
             indirizzo: str | None = None, default: bool | None = None) -> dict:
-    """Aggiorna la configurazione. ``chiave=""`` la cancella, ``None`` la lascia com'e'.
+    """更新配置。``chiave=""`` 删除密钥，``None`` 保持原值。
 
-    ``default=True`` fa di questo servizio quello che ``backend="auto"`` usa per
-    generare e riempire; ``False`` lo toglie (si torna all'IA locale).
+    ``default=True`` 将该服务设为 ``backend="auto"`` 生成和填充时的默认服务；
+    ``False`` 取消默认设置，恢复使用本地 AI。
     """
     p = provider(provider_id)
     cfg = carica()
@@ -155,7 +150,7 @@ def imposta(provider_id: str, chiave: str | None = None, modelli: dict | None = 
         attuali = cfg["modelli"].setdefault(provider_id, {})
         for compito, nome in modelli.items():
             if compito not in p["fa"]:
-                raise CloudError(f"{p['nome']} does not do {compito}; it does {', '.join(p['fa'])}")
+                raise CloudError(f"{p['nome']} 不支持 {compito}；支持的任务：{', '.join(p['fa'])}")
             if nome is None:
                 continue
             if str(nome).strip():
@@ -180,7 +175,7 @@ def _chiave(p: dict, cfg: dict) -> str:
         from . import llm
 
         k = llm.carica()["chiavi"].get(p["id"], "")
-    except Exception:  # noqa: BLE001 - la configurazione della chat non e' obbligatoria
+    except Exception:  # noqa: BLE001 - 聊天配置为可选项。
         k = ""
     return k or (os.environ.get(p["env"], "") if p.get("env") else "")
 
@@ -195,15 +190,15 @@ def _indirizzo(p: dict, cfg: dict) -> str:
 
 
 def _pronto(p: dict, cfg: dict, compito: str | None = None) -> str | None:
-    """None se il servizio si puo' usare (per ``compito``), altrimenti il motivo in parole."""
+    """服务可用于指定 ``compito`` 时返回 None，否则返回原因。"""
     if compito is not None and compito not in p["fa"]:
-        return f"{p['nome']} does not do {compito}"
+        return f"{p['nome']} 不支持 {compito}"
     if p["chiave"] and not _chiave(p, cfg):
-        return f"paste the {p['nome']} API key"
+        return f"请粘贴 {p['nome']} API 密钥"
     if not _indirizzo(p, cfg):
-        return "the service address is missing"
+        return "缺少服务地址"
     if compito is not None and not modello(p, compito, cfg):
-        return f"type the model for {compito}"
+        return f"请为以下任务输入模型：{compito}"
     return None
 
 
@@ -212,7 +207,7 @@ def _maschera(k: str) -> str:
 
 
 def stato() -> dict:
-    """Quello che vede la UI (e l'agente): mai le chiavi intere."""
+    """返回界面和智能体可见的状态，绝不返回完整密钥。"""
     cfg = carica()
     elenco = []
     for p in PROVIDERS:
@@ -229,20 +224,20 @@ def stato() -> dict:
 
 
 def riassunto() -> dict:
-    """Per ai_status: quali servizi sono pronti e per cosa."""
+    """供 ai_status 使用：报告可用服务及其能力。"""
     cfg = carica()
     pronti = {p["id"]: list(p["fa"]) for p in PROVIDERS if p["chiave"] and _pronto(p, cfg) is None}
     return {"default": cfg["default"] or None, "ready": pronti,
-            "hint": "" if pronti else "paste an API key in AI models settings (OpenAI, Gemini, Stability, "
-                                      "OpenRouter, Replicate, Anthropic) to use online models"}
+            "hint": "" if pronti else "请在“AI 模型”设置中粘贴 API 密钥（OpenAI、Gemini、Stability、"
+                                      "OpenRouter、Replicate、Anthropic），以使用在线模型"}
 
 
 def scegli(compito: str, backend: str = "auto") -> str | None:
-    """Il servizio da usare per ``compito``.
+    """选择执行 ``compito`` 的服务。
 
-    ``backend`` = id di un servizio -> quello (con errore chiaro se non va);
-    ``auto`` -> il servizio predefinito se sa farlo, altrimenti None (IA locale).
-    Per ``describe``, che in locale non c'e', ``auto`` prende il primo con la chiave.
+    ``backend`` 为服务 ID 时直接使用该服务，不可用时给出明确错误；
+    ``auto`` 优先使用支持该任务的默认服务，否则返回 None，交给本地 AI。
+    ``describe`` 无内置本地实现，自动选择首个已配置密钥的服务。
     """
     cfg = carica()
     if backend not in ("auto", None):
@@ -262,13 +257,13 @@ def scegli(compito: str, backend: str = "auto") -> str | None:
 
 
 # --------------------------------------------------------------------------
-# HTTP
+# HTTP 请求
 # --------------------------------------------------------------------------
 
 
 def _http(method: str, url: str, headers: dict, body: bytes | None = None,
           timeout: float = 300.0) -> tuple[int, dict, bytes]:
-    """L'unica uscita verso la rete. Ritorna (stato, header, corpo) anche per gli errori HTTP."""
+    """唯一的网络出口；即使 HTTP 出错，也返回状态码、响应头和响应体。"""
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -277,7 +272,7 @@ def _http(method: str, url: str, headers: dict, body: bytes | None = None,
         return exc.code, dict(exc.headers or {}), exc.read()
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         host = urllib.parse.urlsplit(url).netloc
-        raise CloudError(f"cannot reach {host}: {exc}") from exc
+        raise CloudError(f"无法连接 {host}: {exc}") from exc
 
 
 def _errore(nome: str, stato: int, corpo: bytes) -> CloudError:
@@ -296,12 +291,12 @@ def _errore(nome: str, stato: int, corpo: bytes) -> CloudError:
     except ValueError:
         pass
     if stato in (401, 403):
-        return CloudError(f"{nome}: invalid key or missing permissions ({stato}): {testo[:300]}")
+        return CloudError(f"{nome}：密钥无效或权限不足（{stato}): {testo[:300]}")
     if stato == 402:
-        return CloudError(f"{nome}: out of credits ({testo[:300]})")
+        return CloudError(f"{nome}：余额不足（{testo[:300]})")
     if stato == 429:
-        return CloudError(f"{nome}: rate limit or quota reached, retry later ({testo[:300]})")
-    return CloudError(f"{nome} refused the request ({stato}): {testo[:400]}")
+        return CloudError(f"{nome}：达到速率或配额限制，请稍后重试（{testo[:300]})")
+    return CloudError(f"{nome} 拒绝了请求（{stato}): {testo[:400]}")
 
 
 def _json(nome: str, method: str, url: str, headers: dict, body: dict | None = None,
@@ -313,11 +308,11 @@ def _json(nome: str, method: str, url: str, headers: dict, body: dict | None = N
     try:
         return json.loads(corpo or b"{}")
     except ValueError as exc:
-        raise CloudError(f"{nome}: the answer is not JSON") from exc
+        raise CloudError(f"{nome}：响应不是 JSON") from exc
 
 
 def _multipart(campi: dict[str, Any]) -> tuple[bytes, str]:
-    """Campi testo e file (``(nome_file, bytes, mime)``). Le liste ripetono il campo."""
+    """编码文本字段和文件（``(文件名, bytes, MIME 类型)``），列表值生成重复字段。"""
     b = uuid.uuid4().hex
     parti: list[bytes] = []
     for k, v in campi.items():
@@ -350,7 +345,7 @@ def _immagine(data: bytes) -> Image.Image:
         im.load()
         return im.convert("RGBA")
     except OSError as exc:
-        raise CloudError("the service did not return an image") from exc
+        raise CloudError("服务未返回图片") from exc
 
 
 def _scarica(url: str) -> Image.Image:
@@ -358,7 +353,7 @@ def _scarica(url: str) -> Image.Image:
         return _immagine(base64.b64decode(url.split(",", 1)[1]))
     stato, _, corpo = _http("GET", url, {"User-Agent": "pedit"})
     if stato >= 400:
-        raise CloudError(f"downloading the result failed ({stato})")
+        raise CloudError(f"下载结果失败（{stato})")
     return _immagine(corpo)
 
 
@@ -373,7 +368,7 @@ _RAPPORTI = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "2
 
 
 def rapporto(w: int, h: int, scelte: tuple[str, ...] = _RAPPORTI) -> str:
-    """Il rapporto d'aspetto ammesso piu' vicino a w:h."""
+    """选择最接近 w:h 的可用宽高比。"""
     import math
 
     r = math.log(w / max(h, 1))
@@ -389,7 +384,7 @@ def _misura_openai(w: int, h: int, model: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# servizi
+# 服务
 # --------------------------------------------------------------------------
 
 
@@ -406,7 +401,7 @@ def _auth(p: dict, chiave: str) -> dict:
     return {"Authorization": f"Bearer {chiave}"} if chiave else {}
 
 
-# ---- OpenAI e compatibili ---------------------------------------------------
+# ---- OpenAI 及兼容服务 ---------------------------------------------------
 
 def _openai_risultato(p: dict, j: dict) -> Image.Image:
     data = (j.get("data") or [{}])[0]
@@ -414,7 +409,7 @@ def _openai_risultato(p: dict, j: dict) -> Image.Image:
         return _immagine(base64.b64decode(data["b64_json"]))
     if data.get("url"):
         return _scarica(data["url"])
-    raise CloudError(f"{p['nome']} returned no image")
+    raise CloudError(f"{p['nome']} 未返回图片")
 
 
 def _openai_genera(p, chiave, base, model, prompt, w, h, negative, seed):
@@ -430,7 +425,7 @@ def _openai_modifica(p, chiave, base, model, img, prompt, mask=None):
     campi: dict[str, Any] = {"model": model, "prompt": prompt, "n": 1, "size": _misura_openai(w, h, model),
                              "image": ("image.png", _png(img.convert("RGBA")), "image/png")}
     if mask is not None:
-        # OpenAI: la zona da rifare e' quella TRASPARENTE della maschera
+        # OpenAI 使用蒙版中的透明区域表示需要重绘的部分。
         m = Image.new("RGBA", img.size, (0, 0, 0, 255))
         m.putalpha(Image.eval(mask.convert("L").resize(img.size), lambda v: 255 - v))
         campi["mask"] = ("mask.png", _png(m), "image/png")
@@ -451,13 +446,13 @@ def _openai_descrivi(p, chiave, base, model, img, domanda):
     try:
         testo = j["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise CloudError(f"{p['nome']} returned no text") from exc
+        raise CloudError(f"{p['nome']} 未返回文字") from exc
     if isinstance(testo, list):
         testo = "".join(x.get("text", "") for x in testo if isinstance(x, dict))
     return (testo or "").strip()
 
 
-# ---- Gemini -----------------------------------------------------------------
+# ---- Gemini 服务 ---------------------------------------------------------
 
 def _gemini(p, chiave, base, model, parti, immagine=True, aspetto=None):
     gen: dict[str, Any] = {}
@@ -479,7 +474,7 @@ def _gemini(p, chiave, base, model, parti, immagine=True, aspetto=None):
     if immagine:
         if not immagini:
             motivo = " ".join(testi)[:300] or (j.get("promptFeedback") or {}).get("blockReason", "")
-            raise CloudError(f"{p['nome']} returned no image{': ' + motivo if motivo else ''}")
+            raise CloudError(f"{p['nome']} 未返回图片{': ' + motivo if motivo else ''}")
         return immagini[0]
     return "\n".join(testi).strip()
 
@@ -488,7 +483,7 @@ def _parte_img(img: Image.Image) -> dict:
     return {"inline_data": {"mime_type": "image/png", "data": base64.b64encode(_png(img.convert("RGB"))).decode()}}
 
 
-# ---- Stability --------------------------------------------------------------
+# ---- Stability 服务 ------------------------------------------------------
 
 def _stability(p, chiave, base, percorso, campi):
     corpo, ctype = _multipart({**campi, "output_format": "png"})
@@ -503,7 +498,7 @@ def _file_png(img: Image.Image, nome: str = "image.png") -> tuple:
     return (nome, _png(img), "image/png")
 
 
-# ---- OpenRouter ---------------------------------------------------------------
+# ---- OpenRouter 服务 -----------------------------------------------------
 
 def _openrouter_img(p, chiave, base, model, testo, immagini, aspetto=None):
     contenuto: list[dict] = [{"type": "text", "text": testo}]
@@ -516,19 +511,19 @@ def _openrouter_img(p, chiave, base, model, testo, immagini, aspetto=None):
     try:
         msg = j["choices"][0]["message"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise CloudError(f"{p['nome']} returned no answer") from exc
+        raise CloudError(f"{p['nome']} 未返回回答") from exc
     for im in msg.get("images") or []:
         url = (im.get("image_url") or {}).get("url") if isinstance(im, dict) else None
         if url:
             return _scarica(url)
-    raise CloudError(f"{p['nome']} returned no image (is {model} an image model?)")
+    raise CloudError(f"{p['nome']} 未返回图片（{model} 是否为图片模型？）")
 
 
-# ---- Replicate ----------------------------------------------------------------
+# ---- Replicate 服务 ------------------------------------------------------
 
 def _replicate(p, chiave, base, model, entrate, attesa: float = 600.0):
     if "/" not in model:
-        raise CloudError("a Replicate model is owner/name, e.g. black-forest-labs/flux-schnell")
+        raise CloudError("Replicate 模型应为 owner/name 格式，例如 black-forest-labs/flux-schnell")
     owner_nome, _, versione = model.partition(":")
     h = {**_auth(p, chiave), "Prefer": "wait=60"}
     if versione:
@@ -538,7 +533,7 @@ def _replicate(p, chiave, base, model, entrate, attesa: float = 600.0):
     t0 = time.monotonic()
     while j.get("status") not in ("succeeded", "failed", "canceled"):
         if time.monotonic() - t0 > attesa:
-            raise CloudError(f"{p['nome']}: the prediction took too long")
+            raise CloudError(f"{p['nome']}：预测执行超时")
         time.sleep(1.5)
         url = (j.get("urls") or {}).get("get") or f"{base}/predictions/{j.get('id')}"
         j = _json(p["nome"], "GET", url, _auth(p, chiave))
@@ -548,7 +543,7 @@ def _replicate(p, chiave, base, model, entrate, attesa: float = 600.0):
     if isinstance(out, list):
         out = out[0] if out else None
     if not isinstance(out, str):
-        raise CloudError(f"{p['nome']} returned no image")
+        raise CloudError(f"{p['nome']} 未返回图片")
     return _scarica(out)
 
 
@@ -556,7 +551,7 @@ def _replicate_img_key(model: str) -> str:
     return "input_image" if "kontext" in model else "image"
 
 
-# ---- Anthropic ----------------------------------------------------------------
+# ---- Anthropic 服务 ------------------------------------------------------
 
 def _anthropic_descrivi(p, chiave, base, model, img, domanda):
     body = {"model": model, "max_tokens": 1024, "messages": [{"role": "user", "content": [
@@ -568,7 +563,7 @@ def _anthropic_descrivi(p, chiave, base, model, img, domanda):
 
 
 # --------------------------------------------------------------------------
-# compiti
+# 任务
 # --------------------------------------------------------------------------
 
 
@@ -596,11 +591,11 @@ def generate(pid: str, prompt: str, width: int, height: int, negative: str | Non
         if seed is not None and seed >= 0:
             entrate["seed"] = int(seed)
         return _replicate(p, chiave, base, model, entrate)
-    raise CloudError(f"{p['nome']} does not generate images")
+    raise CloudError(f"{p['nome']} 不支持生成图片")
 
 
 def edit(pid: str, img: Image.Image, prompt: str, strength: float = 0.6, seed: int | None = None) -> Image.Image:
-    """Image-to-image: la stessa immagine cambiata secondo il prompt. Ritorna la misura di ``img``."""
+    """图生图：按提示词修改图片，返回与 ``img`` 相同的尺寸。"""
     p, chiave, base, model = _ctx(pid, "edit")
     t = p["tipo"]
     src = _riduci(img.convert("RGB"))
@@ -624,16 +619,15 @@ def edit(pid: str, img: Image.Image, prompt: str, strength: float = 0.6, seed: i
             entrate["prompt_strength"] = float(strength)
         out = _replicate(p, chiave, base, model, entrate)
     else:
-        raise CloudError(f"{p['nome']} does not edit images")
+        raise CloudError(f"{p['nome']} 不支持编辑图片")
     return out.convert("RGB").resize(img.size, Image.Resampling.LANCZOS)
 
 
 def inpaint(pid: str, img: Image.Image, mask: Image.Image, prompt: str, seed: int | None = None) -> Image.Image:
-    """Rifa la zona bianca di ``mask``. Ritorna un'immagine grande come ``img``.
+    """重绘 ``mask`` 中的白色区域，返回与 ``img`` 相同尺寸的图片。
 
-    I servizi senza maschera (Gemini, OpenRouter) ricevono la maschera come
-    seconda immagine con un'istruzione; in ogni caso ``Store`` tiene solo la
-    zona mascherata, quindi un ritocco fuori zona non passa.
+    不支持蒙版的服务（Gemini、OpenRouter）将蒙版作为第二张图片接收，
+    并附带编辑指令。``Store`` 始终只保留蒙版区域，丢弃区域外的修改。
     """
     p, chiave, base, model = _ctx(pid, "inpaint")
     t = p["tipo"]
@@ -656,14 +650,14 @@ def inpaint(pid: str, img: Image.Image, mask: Image.Image, prompt: str, seed: in
         out = _replicate(p, chiave, base, model, {"prompt": prompt, "image": _data_uri(src),
                                                   "mask": _data_uri(m.convert("RGB")), "output_format": "png"})
     else:
-        raise CloudError(f"{p['nome']} does not fill images")
+        raise CloudError(f"{p['nome']} 不支持填充图片")
     return out.convert("RGB").resize(img.size, Image.Resampling.LANCZOS)
 
 
 def describe(pid: str, img: Image.Image, question: str | None = None) -> str:
     p, chiave, base, model = _ctx(pid, "describe")
-    domanda = question or ("Describe this image precisely: subject, setting, composition, light, colors, "
-                           "style, and any visible text. Be concise.")
+    domanda = question or ("请用简体中文准确描述这张图片：主体、环境、构图、光线、颜色、"
+                           "风格及可见文字。保持简洁。")
     src = _riduci(img.convert("RGB"), 1536)
     t = p["tipo"]
     if t == "openai":
@@ -674,13 +668,13 @@ def describe(pid: str, img: Image.Image, question: str | None = None) -> str:
         return _gemini(p, chiave, base, model, [{"text": domanda}, _parte_img(src)], immagine=False)
     if t == "anthropic":
         return _anthropic_descrivi(p, chiave, base, model, src, domanda)
-    raise CloudError(f"{p['nome']} does not describe images")
+    raise CloudError(f"{p['nome']} 不支持描述图片")
 
 
 def upscale(pid: str, img: Image.Image) -> Image.Image:
     p, chiave, base, model = _ctx(pid, "upscale")
     if p["tipo"] != "stability":
-        raise CloudError(f"{p['nome']} does not upscale")
+        raise CloudError(f"{p['nome']} 不支持放大图片")
     src = img.convert("RGB")
     if model == "fast":
         return _stability(p, chiave, base, "stable-image/upscale/fast", {"image": _file_png(src)})
@@ -689,9 +683,9 @@ def upscale(pid: str, img: Image.Image) -> Image.Image:
 
 
 def cutout(pid: str, img: Image.Image) -> Image.Image:
-    """Maschera L del soggetto (255 = soggetto) dallo scontorno del servizio."""
+    """从服务的抠图结果提取主体 L 模式蒙版（255 表示主体）。"""
     p, chiave, base, _ = _ctx(pid, "cutout")
     if p["tipo"] != "stability":
-        raise CloudError(f"{p['nome']} does not remove backgrounds")
+        raise CloudError(f"{p['nome']} 不支持移除背景")
     out = _stability(p, chiave, base, "stable-image/edit/remove-background", {"image": _file_png(img.convert("RGB"))})
     return out.getchannel("A").resize(img.size, Image.Resampling.BILINEAR)

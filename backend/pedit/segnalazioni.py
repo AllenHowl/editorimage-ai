@@ -1,8 +1,8 @@
-"""Registro di cio' che non va, scritto dagli agenti mentre lavorano.
+"""记录智能体工作中发现的问题。
 
-``report_issue`` aggiunge una voce a ``SEGNALAZIONI.md``: alla radice della repo
-se il pacchetto gira da un clone, altrimenti in ``~/.pedit/SEGNALAZIONI.md``
-(``PEDIT_SEGNALAZIONI`` lo sposta). E' la lista delle cose da migliorare.
+``report_issue`` 向 ``SEGNALAZIONI.md`` 追加条目。源码运行时位于仓库根目录，
+安装包运行时位于 ``~/.pedit/SEGNALAZIONI.md``；可用 ``PEDIT_SEGNALAZIONI``
+指定其他位置。此文件是后续改进的依据。
 """
 
 from __future__ import annotations
@@ -28,18 +28,18 @@ def file_segnalazioni() -> Path:
 
 def aggiungi(tipo: str, titolo: str, dettagli: str = "", strumento: str = "") -> dict:
     if tipo not in TIPI:
-        raise ValueError(f"kind must be one of {', '.join(TIPI)}")
+        raise ValueError(f"kind 必须为以下选项之一：{', '.join(TIPI)}")
     if not titolo.strip():
-        raise ValueError("title is empty")
+        raise ValueError("标题不能为空")
     f = file_segnalazioni()
     nuovo = not f.exists()
     righe = []
     if nuovo:
-        righe.append("# Segnalazioni\n\nCio' che gli agenti hanno trovato rotto, scomodo o mancante. "
-                     "Chi sistema una voce la cancella.\n")
+        righe.append("# 问题记录\n\n记录智能体发现的故障、使用不便和缺失功能。"
+                     "问题修复后请删除对应条目。\n")
     quando = time.strftime("%Y-%m-%d %H:%M")
-    righe.append(f"\n## [{tipo}] {titolo.strip()}\n\n- quando: {quando}\n"
-                 + (f"- strumento: `{strumento}`\n" if strumento else "")
+    righe.append(f"\n## [{tipo}] {titolo.strip()}\n\n- 时间：{quando}\n"
+                 + (f"- 工具：`{strumento}`\n" if strumento else "")
                  + (f"\n{dettagli.strip()}\n" if dettagli.strip() else ""))
     with f.open("a", encoding="utf-8") as fh:
         fh.write("".join(righe))

@@ -1,4 +1,4 @@
-// Icone SVG minime, tratto unico: niente librerie per una ventina di glifi.
+// 使用简洁的单线条 SVG 图标，少量图标无需引入额外库。
 const P = {
   move: 'M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3',
   marquee: 'M4 4h4M12 4h4M20 4v4M20 12v4M20 20h-4M12 20H8M4 20v-4M4 12V8',

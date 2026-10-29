@@ -1,10 +1,8 @@
-"""Misure sull'immagine e revisione del documento.
+"""图片测量和文档检查。
 
-Un agente che non misura ritocca a caso: "un po' piu' luminosa" su una foto gia'
-bruciata peggiora tutto. ``stats`` da' numeri che si leggono senza vedere
-(esposizione, contrasto, pixel bruciati, dominante di colore, nitidezza),
-``suggest_enhance`` li traduce in filtri normali, ``review`` guarda il
-documento intero e dice cosa non va.
+盲目调亮已经过曝的照片会让结果更差。``stats`` 提供曝光、对比度、
+溢出像素、偏色和清晰度等数值；``suggest_enhance`` 将其转换为普通滤镜，
+``review`` 检查完整文档并报告问题。
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ from .model import Project
 
 
 def stats(arr: np.ndarray) -> dict:
-    """``arr`` float RGBA 0..1. Solo i pixel visibili contano."""
+    """``arr`` 为 0..1 范围的浮点 RGBA 数组，仅统计可见像素。"""
     vis = arr[..., 3] > 0.5
     if not vis.any():
         return {"empty": True}
@@ -26,11 +24,11 @@ def stats(arr: np.ndarray) -> dict:
     y = fx.luminance(rgb)
     mean = rgb.mean(axis=0)
     _, s, _ = fx._rgb_hsv(rgb[None, ...])
-    # nitidezza: varianza del laplaciano sulla luminanza (su un campione ridotto)
+    # 清晰度：缩小采样后计算亮度拉普拉斯算子的方差。
     yl = fx.luminance(arr[..., :3])
     lap = (np.roll(yl, 1, 0) + np.roll(yl, -1, 0) + np.roll(yl, 1, 1) + np.roll(yl, -1, 1) - 4 * yl)[1:-1, 1:-1]
     q = np.clip(rgb * 255, 0, 255).astype(np.uint8)
-    # colori dominanti: quantizzazione grossolana e conteggio
+    # 主色：粗略量化后统计出现次数。
     bins = (q // 32).astype(np.int32)
     key = bins[:, 0] * 64 + bins[:, 1] * 8 + bins[:, 2]
     counts = np.bincount(key, minlength=512)
@@ -63,10 +61,9 @@ def channel_stats(arr: np.ndarray) -> tuple[list[float], list[float]]:
 
 
 def suggest_enhance(arr: np.ndarray, strength: float = 1.0) -> list[dict]:
-    """Filtri che correggono le misure: livelli, bilanciamento, contrasto, vivacita'.
+    """根据测量结果生成色阶、白平衡、对比度和自然饱和度修正滤镜。
 
-    Non e' una scatola nera: escono effetti normali con valori leggibili, che
-    l'utente o l'agente possono ritoccare uno per uno.
+    返回带可读参数的普通效果，用户或智能体可逐项调整。
     """
     vis = arr[..., 3] > 0.5
     if not vis.any():
@@ -78,14 +75,14 @@ def suggest_enhance(arr: np.ndarray, strength: float = 1.0) -> list[dict]:
     black = float(np.clip(lo * 255 * strength, 0, 60))
     white = float(np.clip(255 - (1 - hi) * 255 * strength, 190, 255))
     mid = float(np.median(y))
-    # gamma che porta la mediana verso 0.45 (dopo lo stiramento dei livelli)
+    # 拉伸色阶后，用伽马将亮度中位数调整到约 0.45。
     stretched = np.clip((mid - black / 255) / max((white - black) / 255, 1e-3), 0.02, 0.98)
     gamma = float(np.clip(np.log(stretched) / np.log(0.45), 0.6, 1.8)) if strength > 0 else 1.0
     gamma = 1 + (gamma - 1) * strength
     if black > 2 or white < 253 or abs(gamma - 1) > 0.03:
         out.append({"type": "levels", "params": {"black": round(black, 1), "white": round(white, 1),
                                                  "gamma": round(gamma, 3)}})
-    # dominante: mondo grigio, solo la parte che eccede una soglia
+    # 偏色：使用灰世界假设，仅修正超过阈值的部分。
     mean = rgb.mean(axis=0)
     warm = float(mean[0] - mean[2])
     if abs(warm) > 0.03:
@@ -103,10 +100,10 @@ def suggest_enhance(arr: np.ndarray, strength: float = 1.0) -> list[dict]:
 
 
 def review(project: Project, base_dir: str | None = None) -> list[dict]:
-    """Problemi del documento, ognuno con lo strumento che lo sistema."""
+    """检查文档问题，并为每项问题提供可用的修复工具。"""
     avvisi: list[dict] = []
     if not project.layers:
-        return [{"issue": "empty document", "fix": "add_image / add_text / generate_image"}]
+        return [{"issue": "文档为空", "fix": "add_image / add_text / generate_image"}]
     W, H = project.width, project.height
     for ly in project.walk():
         nome = ly.name or ly.id
@@ -116,24 +113,24 @@ def review(project: Project, base_dir: str | None = None) -> list[dict]:
             try:
                 w, h = render.content_size(ly, project, base_dir)
             except (KeyError, FileNotFoundError) as exc:
-                avvisi.append({"layer": ly.id, "issue": f"{nome}: content missing ({exc})", "fix": "remove_layer"})
+                avvisi.append({"layer": ly.id, "issue": f"{nome}：内容缺失（{exc})", "fix": "remove_layer"})
                 continue
             if ly.x >= W or ly.y >= H or ly.x + w <= 0 or ly.y + h <= 0:
-                avvisi.append({"layer": ly.id, "issue": f"{nome} is completely outside the canvas",
-                               "fix": "set_transform or align_layer"})
+                avvisi.append({"layer": ly.id, "issue": f"{nome} 完全超出画布",
+                               "fix": "使用 set_transform 或 align_layer"})
             elif ly.type == "text" and (ly.x < 0 or ly.y < 0 or ly.x + w > W or ly.y + h > H):
-                avvisi.append({"layer": ly.id, "issue": f"text {nome} is cut by the canvas edge",
-                               "fix": "align_layer with a margin, or set_text size / max_width"})
+                avvisi.append({"layer": ly.id, "issue": f"文字 {nome} 被画布边缘裁切",
+                               "fix": "使用带 margin 的 align_layer，或调整 set_text 的 size / max_width"})
             if ly.type == "image" and ly.scale > 1.5:
-                avvisi.append({"layer": ly.id, "issue": f"{nome} is enlarged {ly.scale:.1f}x: it will look soft",
-                               "fix": "upscale (AI) instead of scale"})
+                avvisi.append({"layer": ly.id, "issue": f"{nome} 被放大了 {ly.scale:.1f} 倍，可能变得模糊",
+                               "fix": "使用 upscale（AI 放大）增加像素"})
         if ly.type == "text" and ly.style and ly.style.size < min(W, H) * 0.015:
-            avvisi.append({"layer": ly.id, "issue": f"text {nome} is very small for this canvas",
-                           "fix": "set_text size"})
+            avvisi.append({"layer": ly.id, "issue": f"文字 {nome} 相对画布过小",
+                           "fix": "使用 set_text 调整 size"})
         if ly.opacity < 0.05:
-            avvisi.append({"layer": ly.id, "issue": f"{nome} is almost invisible (opacity {ly.opacity})",
-                           "fix": "set_layer opacity or remove_layer"})
-    # contrasto dei testi con cio' che hanno sotto
+            avvisi.append({"layer": ly.id, "issue": f"{nome} 几乎不可见（不透明度 {ly.opacity})",
+                           "fix": "使用 set_layer 调整 opacity，或通过 remove_layer 删除图层"})
+    # 检查文字与下方背景的对比度。
     for i, ly in enumerate(project.layers):
         if ly.type != "text" or not ly.visible or not ly.style:
             continue
@@ -153,20 +150,20 @@ def review(project: Project, base_dir: str | None = None) -> list[dict]:
             fg = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
             if abs(float(bg) - fg) < 0.3:
                 avvisi.append({"layer": ly.id,
-                               "issue": f"text {ly.name or ly.id} has low contrast with the image under it",
-                               "fix": "change color, or add_effect stroke / drop_shadow, or a shape behind it"})
-        except Exception:  # noqa: BLE001 - una revisione non deve rompersi su un livello strano
+                               "issue": f"文字 {ly.name or ly.id} 与下方图片的对比度不足",
+                               "fix": "修改颜色，或用 add_effect 添加 stroke / drop_shadow，或在文字下方添加形状"})
+        except Exception:  # noqa: BLE001 - 单个异常图层不应导致整个检查失败。
             continue
     try:
         img = render.composite(project, base_dir, scale=min(1.0, 800 / max(W, 1)))
         st = stats(img)
         if not st.get("empty"):
             if st["highlights_clipped"] > 0.03:
-                avvisi.append({"issue": f"{st['highlights_clipped']:.0%} of the image is blown out white",
-                               "fix": "shadows_highlights highlights>0, or exposure < 0"})
+                avvisi.append({"issue": f"{st['highlights_clipped']:.0%} 的图片区域高光过曝",
+                               "fix": "使用 shadows_highlights 并设置 highlights>0，或设置 exposure<0"})
             if st["shadows_clipped"] > 0.08:
-                avvisi.append({"issue": f"{st['shadows_clipped']:.0%} of the image is crushed black",
-                               "fix": "shadows_highlights shadows>0 or levels"})
+                avvisi.append({"issue": f"{st['shadows_clipped']:.0%} 的图片区域暗部丢失",
+                               "fix": "使用 shadows_highlights 并设置 shadows>0，或调整 levels"})
     except Exception:  # noqa: BLE001
         pass
     return avvisi

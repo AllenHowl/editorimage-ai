@@ -1,4 +1,4 @@
-"""IA: ripieghi locali veri, ComfyUI simulato (nessuna rete nei test)."""
+"""AI 测试：验证真实本地回退及模拟 ComfyUI，不访问网络。"""
 
 import importlib.util
 
@@ -51,7 +51,7 @@ def test_generative_fill_with_mocked_comfy(monkeypatch, tmp_path, photo):
     monkeypatch.setattr(comfy, "upload", lambda img, name="x": "up.png")
     monkeypatch.setattr(comfy, "run", lambda wf, timeout=900: [Image.new("RGBA", (64, 64), (0, 0, 255, 255))])
     v = s.inpaint([96, 36, 48, 48], prompt="blue sky")
-    assert v["backend"] == "comfyui" and v["name"].startswith("Generative")
+    assert v["backend"] == "comfyui" and v["name"].startswith("生成式填充")
     assert comfy.pick_checkpoint(inpaint=True) == "sd15-inpainting.safetensors"
 
 
@@ -70,5 +70,5 @@ def test_remove_background_real(tmp_path):
 def test_remove_background_without_extra_explains(monkeypatch, store, photo):
     monkeypatch.setattr(ai, "_ha", lambda m: False)
     a = store.add_image(path=photo)
-    with pytest.raises(Exception, match="ai extra"):
+    with pytest.raises(Exception, match="AI 扩展"):
         store.remove_background(a["id"])

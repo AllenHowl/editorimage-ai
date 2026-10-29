@@ -5,19 +5,24 @@ __pycache__/
 build/
 node_modules/
 
-# interfaccia compilata: si rigenera con `npm run build`
+# 编译后的界面，通过 npm run build 重新生成。
 frontend/dist/
-# copia della UI dentro il pacchetto, la fa scripts/build_wheel.py
+# scripts/build_wheel.py 生成的包内界面副本。
 backend/pedit/webui/
-# pacchetti costruiti per PyPI
+# 为 PyPI 构建的安装包。
 dist/
 
-# ambienti virtuali
+# 虚拟环境。
 .venv/
 venv/
 
-# cache di lavoro
+# 工作缓存。
 .pedit/
 
-# permessi locali dell'editor, non riguardano il progetto
+# 编辑器的本地权限，与项目无关。
 .claude/settings.local.json
+
+# 部署配置中的密码哈希及本机密钥不进入版本库。
+.env
+.env.*
+!.env.example

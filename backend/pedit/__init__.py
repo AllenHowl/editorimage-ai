@@ -1,3 +1,3 @@
-"""pedit: editor di immagini a livelli guidabile da UI web, chat e server MCP."""
+"""pedit：支持网页界面、聊天和 MCP 服务操控的图层式图片编辑器。"""
 
 __version__ = "0.1.0"

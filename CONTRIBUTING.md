@@ -3,8 +3,8 @@
 Issues and pull requests are welcome.
 
 - Read [AGENTS.md](AGENTS.md) first — it is the contract for humans and coding agents alike.
-- Code and comments are **in Italian** (project convention); everything a user reads (UI text,
-  error messages, tool and effect descriptions) is **in English**.
+- Comments, docstrings, UI text, error messages, and tool/effect descriptions use **Simplified Chinese**.
+  Preserve API identifiers, document fields, enum values, and model IDs; translate their display labels.
 - Every new behaviour comes with a test. A colour filter needs a test that looks at *which way
   the pixels moved*, not only that it renders.
 - New effect → `effects.py`. New MCP tool → a method in `store.py`, a wrapper in

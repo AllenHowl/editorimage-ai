@@ -1,10 +1,10 @@
-// Proprieta' del livello selezionato (o del documento): ogni campo e' un
-// argomento di un'operazione di Store, inviato quando si lascia il controllo.
+// 显示所选图层或文档的属性，每个字段对应 Store 操作参数，
+// 在用户离开控件时提交修改。
 import { useEffect, useState } from 'react'
 import Icon from './Icons.jsx'
 import { colorHex, defaultParams, fmtNum, stepFor, titleCase } from './util.js'
 
-// slider che invia solo al rilascio: ogni invio e' un render sul server
+// 仅在松开滑块时发送请求，因为每次提交都会触发服务器渲染。
 export function Slider({ label, value, min, max, step, onCommit }) {
   const [v, setV] = useState(value)
   useEffect(() => setV(value), [value])
@@ -47,25 +47,25 @@ function EffectEditor({ layer, effect, index, catalog, run }) {
   return (
     <div className={'effect' + (effect.enabled === false ? ' off' : '')}>
       <div className="effect-head">
-        <input type="checkbox" checked={effect.enabled !== false} title="On/off"
+        <input type="checkbox" checked={effect.enabled !== false} title="启用 / 禁用"
           onChange={e => run('update_effect', { layer: layer.id, index, enabled: e.target.checked })} />
         <button className="link" onClick={() => setOpen(!open)}>{titleCase(effect.type)} {open ? '▾' : '▸'}</button>
         <span className="grow" />
-        <button className="icon-btn" title="Earlier" disabled={index === 0}
+        <button className="icon-btn" title="提前执行" disabled={index === 0}
           onClick={() => run('move_effect', { layer: layer.id, index, to: index - 1 })}><Icon name="up" size={13} /></button>
-        <button className="icon-btn" title="Remove" onClick={() => run('remove_effect', { layer: layer.id, index })}><Icon name="trash" size={13} /></button>
+        <button className="icon-btn" title="移除" onClick={() => run('remove_effect', { layer: layer.id, index })}><Icon name="trash" size={13} /></button>
       </div>
       {open && spec && Object.entries(spec.params).map(([k, p]) => {
         const val = effect.params?.[k] ?? p.default
         if (p.type === 'number' || p.type === 'int')
-          return <Slider key={k} label={k} value={val} min={p.min} max={p.max} step={stepFor(p)} onCommit={x => upd(k, x)} />
-        if (p.type === 'color') return <Color key={k} label={k} value={val} onCommit={x => upd(k, x)} />
+          return <Slider key={k} label={titleCase(k)} value={val} min={p.min} max={p.max} step={stepFor(p)} onCommit={x => upd(k, x)} />
+        if (p.type === 'color') return <Color key={k} label={titleCase(k)} value={val} onCommit={x => upd(k, x)} />
         if (p.type === 'bool') return (
-          <label key={k} className="check"><input type="checkbox" checked={!!val} onChange={e => upd(k, e.target.checked)} /> {k}</label>)
+          <label key={k} className="check"><input type="checkbox" checked={!!val} onChange={e => upd(k, e.target.checked)} /> {k === 'mono' ? '单色噪点' : titleCase(k)}</label>)
         if (p.type === 'points') return (
-          <label key={k} className="numfield wide"><span>{k}</span>
+          <label key={k} className="numfield wide"><span>{titleCase(k)}</span>
             <input defaultValue={val ? JSON.stringify(val) : ''} placeholder="[[0,0],[128,140],[255,255]]"
-              onBlur={e => { try { upd(k, e.target.value ? JSON.parse(e.target.value) : null) } catch { /* json rotto */ } }} />
+              onBlur={e => { try { upd(k, e.target.value ? JSON.parse(e.target.value) : null) } catch { /* 忽略无效的 JSON 输入。 */ } }} />
           </label>)
         return null
       })}
@@ -77,25 +77,25 @@ export default function Properties({ project, layer, catalog, run, selection, on
   if (!project) return null
   if (!layer) return (
     <div className="props">
-      <h4>Document</h4>
+      <h4>文档</h4>
       <div className="grid2">
-        <Num label="W" value={project.width} onCommit={w => run('resize_canvas', { width: w, height: project.height })} />
-        <Num label="H" value={project.height} onCommit={h => run('resize_canvas', { width: project.width, height: h })} />
+        <Num label="宽" value={project.width} onCommit={w => run('resize_canvas', { width: w, height: project.height })} />
+        <Num label="高" value={project.height} onCommit={h => run('resize_canvas', { width: project.width, height: h })} />
       </div>
       <div className="row">
-        <Color label="Background" value={project.background} onCommit={c => run('set_document', { background: c })} />
+        <Color label="背景" value={project.background} onCommit={c => run('set_document', { background: c })} />
         <label className="check"><input type="checkbox" checked={project.background === 'transparent'}
-          onChange={e => run('set_document', { background: e.target.checked ? 'transparent' : '#ffffff' })} /> transparent</label>
+          onChange={e => run('set_document', { background: e.target.checked ? 'transparent' : '#ffffff' })} /> 透明</label>
       </div>
       <div className="row wrap">
         <button onClick={() => {
-          const w = prompt('New width in px (proportions kept):', project.width)
+          const w = prompt('新宽度（像素，保持比例）：', project.width)
           if (w) run('resize_image', { width: +w })
-        }}>Resize image…</button>
-        <button onClick={() => openDialog('expand')}><Icon name="expand" size={13} /> Expand canvas…</button>
-        <button onClick={() => openDialog('describe', {})}><Icon name="eye2" size={13} /> Describe</button>
+        }}>调整图片大小…</button>
+        <button onClick={() => openDialog('expand')}><Icon name="expand" size={13} /> 扩展画布…</button>
+        <button onClick={() => openDialog('describe', {})}><Icon name="eye2" size={13} /> 描述图片</button>
       </div>
-      <p className="hint">Select a layer to edit it. Drag a box with the selection tool to mask, crop or remove things.</p>
+      <p className="hint">选择图层进行编辑。用选区工具框选区域，可添加蒙版、裁剪或移除物体。</p>
     </div>
   )
 
@@ -108,120 +108,120 @@ export default function Properties({ project, layer, catalog, run, selection, on
   return (
     <div className="props">
       <h4>{titleCase(layer.type)} · {layer.name}</h4>
-      <Slider label="Opacity" value={layer.opacity ?? 1} min={0} max={1} step={0.01}
+      <Slider label="不透明度" value={layer.opacity ?? 1} min={0} max={1} step={0.01}
         onCommit={v => run('set_layer', { layer: L, opacity: v })} />
-      <label className="numfield wide"><span>Blend</span>
+      <label className="numfield wide"><span>混合模式</span>
         <select value={layer.blend || 'normal'} onChange={e => run('set_layer', { layer: L, blend: e.target.value })}>
           {(layer.type === 'group' ? ['pass_through'] : []).concat(blendModes || ['normal'])
-            .map(b => <option key={b} value={b}>{b === 'add' ? 'Linear dodge (add)' : titleCase(b)}</option>)}
+            .map(b => <option key={b} value={b}>{b === 'add' ? '线性减淡（添加）' : titleCase(b)}</option>)}
         </select>
       </label>
-      {layer.type !== 'group' && <label className="check" title="Show this layer only where the layer below has pixels">
-        <input type="checkbox" checked={!!layer.clip} onChange={e => run('set_layer', { layer: L, clip: e.target.checked })} /> Clip to layer below</label>}
+      {layer.type !== 'group' && <label className="check" title="仅在下方图层有像素的区域显示此图层">
+        <input type="checkbox" checked={!!layer.clip} onChange={e => run('set_layer', { layer: L, clip: e.target.checked })} /> 剪贴到下方图层</label>}
       {layer.type === 'group' && <p className="hint">
-        {layer.blend === 'pass_through' ? 'Pass through: adjustments inside the group affect everything below it.'
-          : 'Isolated: adjustments inside the group affect only the group.'}</p>}
+        {layer.blend === 'pass_through' ? '穿透：组内的调整会影响下方所有图层。'
+          : '隔离：组内的调整仅影响该组。'}</p>}
 
       {box && <>
-        <h5>Transform</h5>
+        <h5>变换</h5>
         <div className="grid2">
           <Num label="X" value={box[0]} onCommit={x => run('set_transform', { layer: L, x })} />
           <Num label="Y" value={box[1]} onCommit={y => run('set_transform', { layer: L, y })} />
-          <Num label="W" value={box[2]} onCommit={w => run('set_transform', { layer: L, width: w })} />
-          <Num label="Rot°" value={layer.rotation || 0} onCommit={r => run('set_transform', { layer: L, rotation: r })} />
+          <Num label="宽" value={box[2]} onCommit={w => run('set_transform', { layer: L, width: w })} />
+          <Num label="旋转°" value={layer.rotation || 0} onCommit={r => run('set_transform', { layer: L, rotation: r })} />
         </div>
         <div className="row">
-          <button onClick={() => run('align_layer', { layer: L, h: 'center', v: 'middle' })}>Center</button>
-          <button onClick={() => run('set_transform', { layer: L, flip_h: !(layer.flip && layer.flip[0]) })}>Flip H</button>
-          <button onClick={() => run('set_transform', { layer: L, flip_v: !(layer.flip && layer.flip[1]) })}>Flip V</button>
+          <button onClick={() => run('align_layer', { layer: L, h: 'center', v: 'middle' })}>居中</button>
+          <button onClick={() => run('set_transform', { layer: L, flip_h: !(layer.flip && layer.flip[0]) })}>水平翻转</button>
+          <button onClick={() => run('set_transform', { layer: L, flip_v: !(layer.flip && layer.flip[1]) })}>垂直翻转</button>
         </div>
       </>}
 
       {layer.type === 'text' && <>
-        <h5>Text</h5>
+        <h5>文字</h5>
         <textarea defaultValue={layer.text} key={layer.text} rows={2}
           onBlur={e => e.target.value !== layer.text && run('set_text', { layer: L, text: e.target.value })} />
         <div className="grid2">
-          <Num label="Size" value={layer.style.size} onCommit={size => run('set_text', { layer: L, size })} />
-          <Color label="Color" value={layer.style.color} onCommit={color => run('set_text', { layer: L, color })} />
-          <label className="numfield"><span>Font</span>
+          <Num label="大小" value={layer.style.size} onCommit={size => run('set_text', { layer: L, size })} />
+          <Color label="颜色" value={layer.style.color} onCommit={color => run('set_text', { layer: L, color })} />
+          <label className="numfield"><span>字体</span>
             <select value={layer.style.font} onChange={e => run('set_text', { layer: L, font: e.target.value })}>
               {['sans', 'serif', 'mono', 'display', 'handwriting'].concat(
                 ['sans', 'serif', 'mono', 'display', 'handwriting'].includes(layer.style.font) ? [] : [layer.style.font])
-                .map(f => <option key={f}>{f}</option>)}
+                .map(f => <option key={f} value={f}>{titleCase(f)}</option>)}
             </select></label>
           <label className="check"><input type="checkbox" checked={!!layer.style.bold}
-            onChange={e => run('set_text', { layer: L, bold: e.target.checked })} /> bold</label>
-          <Num label="Outline" value={layer.style.stroke_width} onCommit={v => run('set_text', { layer: L, stroke_width: v })} />
-          <Color label="Outline" value={layer.style.stroke_color} onCommit={v => run('set_text', { layer: L, stroke_color: v })} />
+            onChange={e => run('set_text', { layer: L, bold: e.target.checked })} /> 粗体</label>
+          <Num label="轮廓" value={layer.style.stroke_width} onCommit={v => run('set_text', { layer: L, stroke_width: v })} />
+          <Color label="轮廓" value={layer.style.stroke_color} onCommit={v => run('set_text', { layer: L, stroke_color: v })} />
         </div>
       </>}
 
       {layer.type === 'shape' && <>
-        <h5>Shape</h5>
+        <h5>形状</h5>
         <div className="grid2">
-          <Color label="Fill" value={layer.shape.fill} onCommit={fill => run('set_shape', { layer: L, fill })} />
-          <Color label="Stroke" value={layer.shape.stroke} onCommit={stroke => run('set_shape', { layer: L, stroke })} />
-          <Num label="Stroke px" value={layer.shape.stroke_width} onCommit={v => run('set_shape', { layer: L, stroke_width: v })} />
-          <Num label="Radius" value={layer.shape.radius} onCommit={v => run('set_shape', { layer: L, radius: v })} />
+          <Color label="填充" value={layer.shape.fill} onCommit={fill => run('set_shape', { layer: L, fill })} />
+          <Color label="描边" value={layer.shape.stroke} onCommit={stroke => run('set_shape', { layer: L, stroke })} />
+          <Num label="描边宽度" value={layer.shape.stroke_width} onCommit={v => run('set_shape', { layer: L, stroke_width: v })} />
+          <Num label="圆角" value={layer.shape.radius} onCommit={v => run('set_shape', { layer: L, radius: v })} />
         </div>
       </>}
 
       {layer.type === 'fill' && <>
-        <h5>Fill</h5>
-        <label className="numfield wide"><span>Kind</span>
+        <h5>填充</h5>
+        <label className="numfield wide"><span>类型</span>
           <select value={layer.fill.kind} onChange={e => run('set_fill', { layer: L, kind: e.target.value })}>
-            <option>solid</option><option>linear</option><option>radial</option></select></label>
+            <option value="solid">纯色</option><option value="linear">线性渐变</option><option value="radial">径向渐变</option></select></label>
         <div className="grid2">
-          <Color label="Color" value={layer.fill.color} onCommit={color => run('set_fill', { layer: L, color })} />
-          <Color label="Color 2" value={layer.fill.color2} onCommit={color2 => run('set_fill', { layer: L, color2 })} />
-          <Num label="Angle" value={layer.fill.angle} onCommit={angle => run('set_fill', { layer: L, angle })} />
+          <Color label="颜色" value={layer.fill.color} onCommit={color => run('set_fill', { layer: L, color })} />
+          <Color label="颜色 2" value={layer.fill.color2} onCommit={color2 => run('set_fill', { layer: L, color2 })} />
+          <Num label="角度" value={layer.fill.angle} onCommit={angle => run('set_fill', { layer: L, angle })} />
         </div>
       </>}
 
-      <h5>Mask</h5>
+      <h5>蒙版</h5>
       {layer.mask ? <>
         <div className="row wrap">
-          <span className="tag">{layer.mask.kind}{layer.mask.invert ? ' · inverted' : ''}{layer.mask.strokes ? ` · ${layer.mask.strokes} strokes` : ''}</span>
-          <button onClick={() => run('update_mask', { layer: L, invert: !layer.mask.invert })}>Invert</button>
-          {layer.mask.strokes > 0 && <button title="Remove the last brush stroke on the mask"
-            onClick={() => run('remove_mask_stroke', { layer: L })}>Undo stroke</button>}
-          <button onClick={() => run('remove_mask', { layer: L })}>Remove</button>
+          <span className="tag">{titleCase(layer.mask.kind)}{layer.mask.invert ? ' · 已反相' : ''}{layer.mask.strokes ? ` · ${layer.mask.strokes} 笔` : ''}</span>
+          <button onClick={() => run('update_mask', { layer: L, invert: !layer.mask.invert })}>反相</button>
+          {layer.mask.strokes > 0 && <button title="移除蒙版上的最后一笔"
+            onClick={() => run('remove_mask_stroke', { layer: L })}>撤销笔画</button>}
+          <button onClick={() => run('remove_mask', { layer: L })}>移除</button>
         </div>
-        <p className="hint">{maskMode ? 'Brush and eraser are painting on this mask (black hides, white reveals).'
-          : 'Pick the brush and switch “Paint on: mask” to refine it.'}</p>
-        <Slider label="Feather" value={layer.mask.feather || 0} min={0} max={200} step={1}
+        <p className="hint">{maskMode ? '画笔和橡皮擦作用于此蒙版（黑色隐藏，白色显示）。'
+          : '选择画笔，将“绘制到”切换为蒙版，即可细化边缘。'}</p>
+        <Slider label="羽化" value={layer.mask.feather || 0} min={0} max={200} step={1}
           onCommit={v => run('update_mask', { layer: L, feather: v })} />
       </> : <div className="row">
-        <button disabled={!selection} title="Use the current selection as mask"
-          onClick={() => run('set_mask', { layer: L, kind: selection.kind, box: selection.box, feather: 0 })}>From selection</button>
-        <button title="A mask to paint with the brush (starts fully visible)"
-          onClick={() => run('set_mask', { layer: L, kind: 'paint' })}>Paint mask</button>
-        <button title="A mask to paint that starts fully hidden: paint to reveal"
-          onClick={() => run('set_mask', { layer: L, kind: 'paint', hide_all: true })}>Hide all</button>
-        {layer.type === 'image' && <button onClick={() => onAI('remove_background', { layer: L })}><Icon name="wand" size={13} /> Remove BG</button>}
+        <button disabled={!selection} title="将当前选区用作蒙版"
+          onClick={() => run('set_mask', { layer: L, kind: selection.kind, box: selection.box, feather: 0 })}>从选区创建</button>
+        <button title="创建可用画笔绘制的蒙版（初始全部显示）"
+          onClick={() => run('set_mask', { layer: L, kind: 'paint' })}>绘制蒙版</button>
+        <button title="创建初始全部隐藏的蒙版，绘制以显示内容"
+          onClick={() => run('set_mask', { layer: L, kind: 'paint', hide_all: true })}>全部隐藏</button>
+        {layer.type === 'image' && <button onClick={() => onAI('remove_background', { layer: L })}><Icon name="wand" size={13} /> 移除背景</button>}
       </div>}
 
       {layer.type === 'image' && <>
         <h5>AI</h5>
         <div className="row wrap">
-          <button onClick={() => onAI('auto_enhance', { layer: L })}><Icon name="sparkle" size={13} /> Enhance</button>
-          <button onClick={() => onAI('upscale', { layer: L, factor: 2 })}>Upscale ×2</button>
-          <button title="Image-to-image: redo this layer following a prompt" onClick={() => openDialog('edit', { layer: L })}>
-            <Icon name="sparkle" size={13} /> Edit with AI…</button>
-          <button title="Image-to-text: a vision model describes this layer" onClick={() => openDialog('describe', { layer: L })}>
-            <Icon name="eye2" size={13} /> Describe</button>
-          <button onClick={() => run('rasterize_layer', { layer: L })} title="Bake effects and mask into pixels">Rasterize</button>
+          <button onClick={() => onAI('auto_enhance', { layer: L })}><Icon name="sparkle" size={13} /> 增强</button>
+          <button onClick={() => onAI('upscale', { layer: L, factor: 2 })}>放大 2 倍</button>
+          <button title="图生图：按提示词重新生成此图层" onClick={() => openDialog('edit', { layer: L })}>
+            <Icon name="sparkle" size={13} /> 用 AI 编辑…</button>
+          <button title="使用视觉模型描述此图层" onClick={() => openDialog('describe', { layer: L })}>
+            <Icon name="eye2" size={13} /> 描述图片</button>
+          <button onClick={() => run('rasterize_layer', { layer: L })} title="将效果和蒙版应用到像素">栅格化</button>
         </div>
       </>}
       {['text', 'shape', 'paint'].includes(layer.type) &&
-        <button onClick={() => run('rasterize_layer', { layer: L })}>Rasterize</button>}
+        <button onClick={() => run('rasterize_layer', { layer: L })}>栅格化</button>}
 
-      <h5>Effects</h5>
+      <h5>效果</h5>
       {(layer.effects || []).map((e, i) => (
         <EffectEditor key={i + e.type} layer={layer} effect={e} index={i} catalog={catalog} run={run} />))}
       <select value="" onChange={e => e.target.value && addFx(e.target.value)}>
-        <option value="">+ Add effect…</option>
+        <option value="">+ 添加效果…</option>
         {['color', 'detail', 'stylize', 'style'].map(g => (
           <optgroup key={g} label={titleCase(g)}>
             {filters.filter(e => e.group === g).map(e => <option key={e.name} value={e.name}>{titleCase(e.name)}</option>)}

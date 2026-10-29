@@ -1,16 +1,13 @@
-"""Modello dati del documento.
+"""文档数据模型。
 
-Un documento e' JSON puro: nessuno stato nascosto, tutto serializzabile. Il
-render e' una funzione pura del documento (piu' i file degli asset), quindi lo
-stesso documento produce sempre gli stessi pixel.
+文档是可完整序列化的纯 JSON，没有隐藏状态。渲染是文档和素材文件的纯函数，
+相同文档始终产生相同像素。
 
-Niente e' distruttivo: un filtro e' una voce in ``effects``, una maschera e' un
-campo del livello, perfino lo scontorno IA e' una maschera salvata come asset a
-parte. L'immagine originale non viene mai riscritta.
+编辑为非破坏式：滤镜保存在 ``effects``，蒙版保存在图层字段中，AI 抠图蒙版
+也作为独立素材保存，绝不覆盖原图。
 
-Coordinate: pixel del documento, origine in alto a sinistra. ``x``/``y`` di un
-livello sono l'angolo in alto a sinistra del suo contenuto *prima* della
-rotazione, che avviene attorno al centro del contenuto scalato.
+坐标使用文档像素，原点在左上角。图层的 ``x``/``y`` 为旋转前内容的左上角，
+旋转围绕缩放后内容的中心进行。
 """
 
 from __future__ import annotations
@@ -23,15 +20,15 @@ from typing import Any, Union, get_args, get_origin, get_type_hints
 from PIL import features as _features
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".gif"}
-# AVIF dentro Pillow solo dalla 11.3, e solo se la ruota ha libavif
+# Pillow 11.3 起才支持 AVIF，且安装包必须包含 libavif。
 if _features.check("avif"):
     IMAGE_EXTS.add(".avif")
 
 LAYER_TYPES = ("image", "text", "shape", "fill", "adjustment", "paint", "group")
 
-# le 27 di Photoshop (``add`` e' il suo Linear Dodge) piu' ``pass_through``,
-# che vale solo per i gruppi: i figli si fondono direttamente con cio' che sta
-# sotto il gruppo, come se il gruppo non ci fosse
+# Photoshop 的 27 种混合模式（``add`` 对应线性减淡），另加仅用于组的 ``pass_through``。
+# 穿透模式下，子图层直接与组下方内容混合，
+# 等同于没有组容器。
 BLEND_MODES = (
     "normal", "dissolve",
     "darken", "multiply", "color_burn", "linear_burn", "darker_color",
@@ -52,7 +49,7 @@ def new_id(prefix: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# (de)serializzazione generica dei dataclass
+# dataclass 的通用序列化和反序列化。
 # --------------------------------------------------------------------------
 
 
@@ -67,7 +64,7 @@ def to_dict(obj: Any) -> Any:
 
 
 def _unwrap_optional(ftype: Any) -> Any:
-    """``TextStyle | None`` -> ``TextStyle``; lascia intatto il resto."""
+    """将 ``TextStyle | None`` 还原为 ``TextStyle``，其他类型保持原样。"""
     if get_origin(ftype) in (Union, types.UnionType):
         args = [a for a in get_args(ftype) if a is not type(None)]
         if len(args) == 1:
@@ -76,10 +73,9 @@ def _unwrap_optional(ftype: Any) -> Any:
 
 
 def from_dict(cls: type, data: Any) -> Any:
-    """Costruisce un dataclass da dict ignorando le chiavi sconosciute.
+    """从字典构造 dataclass，忽略未知字段。
 
-    Tollerante in avanti: un documento salvato da una versione futura si apre
-    comunque, perdendo solo i campi che non conosciamo.
+    向前兼容：未来版本保存的文档仍可打开，仅忽略当前版本不认识的字段。
     """
     if not is_dataclass(cls):
         return data
@@ -103,17 +99,16 @@ def from_dict(cls: type, data: Any) -> Any:
 
 
 # --------------------------------------------------------------------------
-# parti del documento
+# 文档组成部分
 # --------------------------------------------------------------------------
 
 
 @dataclass
 class Asset:
-    """Un file immagine usato dal documento. Non viene mai modificato.
+    """文档引用的图片文件，始终保持原始内容。
 
-    ``generated`` marca i file prodotti dall'editor (maschere IA, toppe di
-    riempimento, livelli rasterizzati): stanno nella cartella degli asset del
-    documento e si possono cancellare insieme a lui.
+    ``generated`` 标记编辑器生成的文件（AI 蒙版、填充补丁、栅格化图层），
+    它们保存在文档素材目录中，可随文档一起删除。
     """
     id: str
     path: str
@@ -132,17 +127,15 @@ class Effect:
 
 @dataclass
 class Mask:
-    """Maschera di livello: bianco = visibile, nero = nascosto.
+    """图层蒙版：白色显示，黑色隐藏。
 
-    ``rect`` ed ``ellipse`` hanno ``box`` in pixel del *documento* (una zona
-    dell'immagine finale). ``image`` e' un asset in scala di grigi allineato ai
-    pixel *del contenuto* del livello: segue spostamenti, scala e rotazione,
-    come una maschera di Photoshop collegata. E' la forma dello scontorno IA.
-    ``paint`` parte tutta da ``base`` (1 = tutto visibile, 0 = tutto nascosto).
+    ``rect`` 和 ``ellipse`` 的 ``box`` 使用文档像素，即最终图片中的区域。
+    ``image`` 为与图层内容像素对齐的灰度素材，随内容移动、缩放和旋转，
+    类似 Photoshop 的链接蒙版；AI 抠图使用此类型。
+    ``paint`` 由 ``base`` 指定初始可见性，1 为全部显示，0 为全部隐藏。
 
-    Sopra la forma, qualunque sia, si dipinge: ``strokes`` in pixel del
-    documento, bianco rivela e nero nasconde (conta la luminosita' del colore).
-    Cosi' si rifinisce a pennello anche uno scontorno IA.
+    任意形状的蒙版均可叠加文档像素坐标下的 ``strokes``，按颜色亮度
+    决定显示程度：白色显示，黑色隐藏，可用于细化 AI 抠图边缘。
     """
     kind: str = "rect"
     box: list[float] | None = None
@@ -165,7 +158,7 @@ class TextStyle:
     line_spacing: float = 1.2
     stroke_width: float = 0.0
     stroke_color: str = "#000000"
-    # 0 = nessun a capo automatico; altrimenti larghezza massima in pixel
+    # 0 表示不自动换行，否则为最大行宽，单位为像素。
     max_width: float = 0.0
 
 
@@ -178,7 +171,7 @@ class Shape:
     stroke: str | None = None
     stroke_width: float = 0.0
     radius: float = 0.0
-    # solo polygon/line: punti relativi all'angolo del livello
+    # 仅用于 polygon/line：相对图层左上角的顶点坐标。
     points: list[list[float]] | None = None
 
 
@@ -188,17 +181,16 @@ class Fill:
     color: str = "#000000"
     color2: str = "#ffffff"
     angle: float = 90.0
-    # radiale: centro in frazioni del documento
+    # 径向渐变：中心以画布宽高比例表示。
     cx: float = 0.5
     cy: float = 0.5
 
 
 @dataclass
 class Stroke:
-    """Una pennellata: polilinea in pixel del documento.
+    """笔画：使用文档像素坐标的折线。
 
-    Le pennellate restano vettoriali nel documento e si rasterizzano al render,
-    quindi una pennellata sbagliata si toglie senza toccare le altre.
+    笔画以矢量形式保存在文档中，渲染时才栅格化，因此删除错误笔画不会影响其他笔画。
     """
     points: list[list[float]] = field(default_factory=list)
     color: str = "#000000"
@@ -206,9 +198,9 @@ class Stroke:
     hardness: float = 0.8
     opacity: float = 1.0
     erase: bool = False
-    # timbro clone: i pixel arrivano da (punto + clone), presi da cio' che sta
-    # sotto il livello; con heal la luce e il colore si adattano alla zona
-    # di arrivo (pennello correttivo)
+    # 仿制图章从当前图层下方合成内容的（笔画点 + clone 偏移）处取样，
+    # 启用 heal 时，将光线和颜色匹配到目标区域，
+    # 形成修复画笔效果。
     clone: list[float] | None = None
     heal: bool = False
 
@@ -222,14 +214,14 @@ class Layer:
     locked: bool = False
     opacity: float = 1.0
     blend: str = "normal"
-    # trasformazione del contenuto
+    # 内容变换
     x: float = 0.0
     y: float = 0.0
     scale: float = 1.0
     rotation: float = 0.0
     flip_h: bool = False
     flip_v: bool = False
-    # contenuto, secondo il tipo
+    # 根据图层类型保存内容。
     asset: str | None = None
     crop: list[float] | None = None
     text: str | None = None
@@ -237,24 +229,24 @@ class Layer:
     shape: Shape | None = None
     fill: Fill | None = None
     strokes: list[Stroke] = field(default_factory=list)
-    # filtri e stili (su un livello di regolazione: applicati a cio' che sta sotto)
+    # 滤镜和样式；调整图层中的滤镜作用于下方内容。
     effects: list[Effect] = field(default_factory=list)
     mask: Mask | None = None
-    # maschera di ritaglio: il livello si vede solo dove c'e' quello sotto
+    # 剪贴蒙版：仅在下方图层有内容的区域显示。
     clip: bool = False
-    # solo per i gruppi: i figli, dal basso verso l'alto
+    # 仅用于组：子图层从下到上排列。
     children: list["Layer"] = field(default_factory=list)
     collapsed: bool = False
 
 
 @dataclass
 class Project:
-    name: str = "untitled"
+    name: str = "未命名"
     width: int = 1920
     height: int = 1080
     background: str = "#ffffff"
     dpi: int = 72
-    # dal basso verso l'alto: l'ultimo e' quello disegnato sopra a tutti
+    # 图层从下到上排列，最后一项显示在最上方。
     layers: list[Layer] = field(default_factory=list)
     assets: list[Asset] = field(default_factory=list)
     version: int = 1
@@ -266,9 +258,9 @@ class Project:
     def from_obj(cls, data: dict) -> "Project":
         return from_dict(cls, data)
 
-    # ---- ricerca --------------------------------------------------------
+    # ---- 查找 ------------------------------------------------------------
     def walk(self, layers: list[Layer] | None = None):
-        """Tutti i livelli, anche dentro i gruppi (dal basso, prima il gruppo poi i figli)."""
+        """遍历所有图层（包括组内图层），从下到上，先组后子图层。"""
         for ly in self.layers if layers is None else layers:
             yield ly
             if ly.children:
@@ -278,21 +270,21 @@ class Project:
         for ly in self.walk():
             if ly.id == layer_id:
                 return ly
-        # anche per nome: l'agente spesso ricorda "Title" e non "L3fa9c1d2"
+        # 也支持按名称查找：智能体通常记住“标题”，而非“L3fa9c1d2”。
         for ly in self.walk():
             if ly.name and ly.name == layer_id:
                 return ly
-        raise KeyError(f"layer not found: {layer_id}")
+        raise KeyError(f"未找到图层：{layer_id}")
 
     def container(self, layer_id: str) -> list[Layer]:
-        """La lista che contiene il livello: ``layers`` o i figli di un gruppo."""
+        """返回包含该图层的列表，即根 ``layers`` 或某个组的子图层。"""
         target = self.layer(layer_id)
         if any(ly is target for ly in self.layers):
             return self.layers
         for ly in self.walk():
             if any(c is target for c in ly.children):
                 return ly.children
-        raise KeyError(f"layer not found: {layer_id}")
+        raise KeyError(f"未找到图层：{layer_id}")
 
     def parent(self, layer_id: str) -> Layer | None:
         target = self.layer(layer_id)
@@ -302,7 +294,7 @@ class Project:
         return None
 
     def index_of(self, layer_id: str) -> int:
-        """Posizione dentro la sua lista (``container``)."""
+        """返回图层在所属列表（``container``）中的位置。"""
         target = self.layer(layer_id)
         return next(i for i, ly in enumerate(self.container(layer_id)) if ly is target)
 
@@ -310,4 +302,4 @@ class Project:
         for a in self.assets:
             if a.id == asset_id:
                 return a
-        raise KeyError(f"asset not found: {asset_id}")
+        raise KeyError(f"未找到素材：{asset_id}")

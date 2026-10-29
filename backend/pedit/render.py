@@ -1,17 +1,14 @@
-"""Documento -> pixel.
+"""将文档转换为像素。
 
-Il render e' una funzione pura del documento: niente stato, niente casualita'
-(il rumore ha il suo seme). L'anteprima nella UI, l'immagine che guarda
-l'agente e il file esportato escono da qui, quindi quello che si vede e' quello
-che si esporta.
+渲染是文档的纯函数，无隐藏状态，噪点使用固定种子。界面预览、智能体
+查看的图片和导出文件均由此生成，确保所见即所得。
 
-Ogni livello si disegna su una tela trasparente grande quanto il documento,
-poi: filtri -> maschera -> stili -> opacita' -> fusione con cio' che sta sotto.
-Un livello di regolazione invece prende il composito sotto di lui, ci applica
-i suoi filtri e lo rimescola attraverso la propria maschera.
+每个图层先绘制到与文档同尺寸的透明画布，再依次执行：
+滤镜 → 蒙版 → 样式 → 不透明度 → 与下方内容混合。
+调整图层对下方合成结果应用滤镜，再通过自身蒙版重新混合。
 
-``scale`` serve alle anteprime: si renderizza tutto piu' piccolo, e le
-lunghezze in pixel (sfocature, ombre, contorni, testo) scalano con lui.
+``scale`` 用于预览：缩小渲染尺寸时，同步缩放模糊、阴影、描边及文字等
+以像素为单位的参数。
 """
 
 from __future__ import annotations
@@ -31,7 +28,7 @@ from . import effects as fx
 from .model import IMAGE_EXTS, Layer, Project
 
 # --------------------------------------------------------------------------
-# asset su disco (con cache)
+# 磁盘素材（带缓存）。
 # --------------------------------------------------------------------------
 
 _CACHE: "OrderedDict[tuple, Image.Image]" = OrderedDict()
@@ -47,12 +44,12 @@ def resolve(path: str, base_dir: str | None) -> Path:
 
 
 def load_image(path: str | Path) -> Image.Image:
-    """Immagine RGBA, con la rotazione EXIF applicata. Tenuta in cache per mtime."""
+    """读取 RGBA 图片并应用 EXIF 旋转，按文件修改时间缓存。"""
     p = Path(path)
     try:
         st = p.stat()
     except OSError as exc:
-        raise FileNotFoundError(f"image not found: {p}") from exc
+        raise FileNotFoundError(f"未找到图片：{p}") from exc
     key = (str(p), st.st_mtime_ns, st.st_size)
     with _CACHE_LOCK:
         if key in _CACHE:
@@ -69,7 +66,7 @@ def load_image(path: str | Path) -> Image.Image:
 
 
 # --------------------------------------------------------------------------
-# font
+# 字体
 # --------------------------------------------------------------------------
 
 _FAMIGLIE = {
@@ -80,7 +77,7 @@ _FAMIGLIE = {
     "handwriting": ["comic", "segoepr", "DejaVuSans"],
 }
 _VARIANTI = {
-    # (bold, italic) -> suffissi tipici dei file di Windows e Linux
+    # 将（粗体、斜体）映射到 Windows 和 Linux 常见字体文件后缀。
     (True, False): ["bd", "b", "-Bold", "Bold"],
     (False, True): ["i", "-Italic", "-Oblique", "Italic"],
     (True, True): ["bi", "z", "-BoldItalic", "-BoldOblique", "BoldItalic"],
@@ -119,7 +116,7 @@ def _indice_font() -> dict[str, Path]:
 
 
 def font_path(font: str, bold: bool = False, italic: bool = False) -> Path | None:
-    """Famiglia ('sans', 'serif'...), nome di file ('arial') o percorso."""
+    """按字体族（如 'sans'、'serif'）、文件名（如 'arial'）或路径查找字体。"""
     if font and Path(font).suffix.lower() in (".ttf", ".otf", ".ttc") and Path(font).is_file():
         return Path(font)
     idx = _indice_font()
@@ -168,12 +165,12 @@ def _a_capo(testo: str, font, max_w: float, draw: ImageDraw.ImageDraw) -> str:
 
 
 # --------------------------------------------------------------------------
-# contenuto dei livelli, gia' alla scala giusta
+# 已按目标比例缩放的图层内容。
 # --------------------------------------------------------------------------
 
 
 def _text_image(layer: Layer, k: float) -> tuple[Image.Image, tuple[float, float]]:
-    """Il testo si disegna direttamente alla dimensione finale: niente sgranature."""
+    """直接按最终尺寸绘制文字，避免缩放造成锯齿。"""
     st = layer.style
     font = get_font(st.font, st.size * k, st.bold, st.italic)
     stroke = int(round(st.stroke_width * k))
@@ -192,7 +189,7 @@ def _text_image(layer: Layer, k: float) -> tuple[Image.Image, tuple[float, float
 
 
 def text_size(layer: Layer) -> tuple[float, float]:
-    """Ingombro del testo in pixel del documento (alla scala del livello)."""
+    """返回文字在图层缩放后占据的文档像素范围。"""
     _, (w, h) = _text_image(layer, 1.0)
     return w, h
 
@@ -202,7 +199,7 @@ def _shape_image(layer: Layer, k: float) -> tuple[Image.Image, tuple[float, floa
     sw = sh.stroke_width * k if sh.stroke else 0.0
     pad = int(math.ceil(sw / 2)) + 1
     w, h = max(1, int(round(sh.w * k))), max(1, int(round(sh.h * k)))
-    # 4x e poi giu': bordi lisci senza dipendere dall'antialias di ImageDraw
+    # 先以 4 倍尺寸绘制再缩小，平滑边缘，不依赖 ImageDraw 抗锯齿。
     ss = 4
     img = Image.new("RGBA", ((w + 2 * pad) * ss, (h + 2 * pad) * ss), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -227,8 +224,8 @@ def _shape_image(layer: Layer, k: float) -> tuple[Image.Image, tuple[float, floa
         else:
             d.polygon(xy, fill=fill, outline=outline, width=width)
     img = img.resize((w + 2 * pad, h + 2 * pad), Image.Resampling.LANCZOS)
-    # il padding (per il contorno) e' simmetrico: centrando l'immagine sul centro
-    # della forma, la forma cade esattamente in x, y
+    # 描边留白对称分布，将图片中心与形状中心对齐后，
+    # 形状会准确落在 x、y 处。
     return img, (sh.w, sh.h)
 
 
@@ -247,7 +244,7 @@ def _image_content(layer: Layer, project: Project, base_dir: str | None,
 
 
 def content_size(layer: Layer, project: Project, base_dir: str | None = None) -> tuple[float, float]:
-    """Dimensione del contenuto in pixel del documento, gia' moltiplicata per ``scale``."""
+    """返回已乘以 ``scale`` 的内容尺寸，单位为文档像素。"""
     if layer.type == "image":
         a = project.asset(layer.asset)
         if layer.crop:
@@ -273,7 +270,7 @@ def _fill_image(layer: Layer, W: int, H: int) -> Image.Image:
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     if f.kind == "linear":
         ang = math.radians(f.angle)
-        dx, dy = math.sin(ang), -math.cos(ang)    # 90 = da sinistra a destra, 180 = dall'alto in basso
+        dx, dy = math.sin(ang), -math.cos(ang)    # 90 表示从左到右，180 表示从上到下。
         proj = (xx - W / 2) * dx + (yy - H / 2) * dy
         half = abs(W / 2 * dx) + abs(H / 2 * dy)
         t = np.clip(proj / max(2 * half, 1e-6) + 0.5, 0, 1)
@@ -286,7 +283,7 @@ def _fill_image(layer: Layer, W: int, H: int) -> Image.Image:
 
 
 def _stroke_alpha(st, W: int, H: int, s: float) -> np.ndarray:
-    """Copertura di una pennellata (0..1), durezza e opacita' comprese."""
+    """计算笔画覆盖率（0..1），包含硬度和不透明度。"""
     m = Image.new("L", (W, H), 0)
     d = ImageDraw.Draw(m)
     size = max(1.0, st.size * s)
@@ -305,7 +302,7 @@ def _stroke_alpha(st, W: int, H: int, s: float) -> np.ndarray:
 
 
 def _sposta(arr: np.ndarray, dx: int, dy: int) -> np.ndarray:
-    """``out[y, x] = arr[y + dy, x + dx]``; fuori dalla tela e' trasparente."""
+    """``out[y, x] = arr[y + dy, x + dx]``，画布外为透明。"""
     H, W = arr.shape[:2]
     out = np.zeros_like(arr)
     xs0, xs1 = max(0, dx), min(W, W + dx)
@@ -319,17 +316,17 @@ def _sposta(arr: np.ndarray, dx: int, dy: int) -> np.ndarray:
 def _sfoca(arr: np.ndarray, r: float) -> np.ndarray:
     if r <= 0.3:
         return arr
-    # la bassa frequenza perdona gli 8 bit: basta Pillow
+    # 低频信息可接受 8 位精度，使用 Pillow 即可。
     im = Image.fromarray((np.clip(arr, 0, 1) * 255 + 0.5).astype(np.uint8), "RGB")
     return np.asarray(im.filter(ImageFilter.GaussianBlur(r)), np.float32) / 255
 
 
 def _clone_top(st, sotto: np.ndarray, a: np.ndarray, s: float) -> np.ndarray:
-    """I pixel del timbro: ``sotto`` spostato di ``clone``; con heal, rifusi sulla luce d'arrivo."""
+    """仿制图章像素：将 ``sotto`` 按 ``clone`` 偏移取样；heal 模式匹配目标区域光线。"""
     dx, dy = (int(round(v * s)) for v in st.clone)
     src = _sposta(sotto, dx, dy)
     if st.heal:
-        # bassa frequenza dalla zona di arrivo, dettaglio dalla sorgente
+        # 低频来自目标区域，细节来自取样源。
         r = max(1.0, st.size * s / 3)
         rgb = np.clip(src[..., :3] + _sfoca(sotto[..., :3], r) - _sfoca(src[..., :3], r), 0, 1)
         src = np.concatenate([rgb, src[..., 3:4]], axis=-1)
@@ -339,10 +336,10 @@ def _clone_top(st, sotto: np.ndarray, a: np.ndarray, s: float) -> np.ndarray:
 
 
 def _paint_image(layer: Layer, W: int, H: int, s: float, sotto: np.ndarray | None = None) -> Image.Image:
-    """Pennellate in ordine; ``erase`` toglie alpha a cio' che e' gia' dipinto.
+    """按顺序绘制笔画；``erase`` 降低已绘制内容的 alpha。
 
-    Una pennellata ``clone`` copia da ``sotto`` (il composito sotto il livello);
-    senza ``sotto`` non disegna niente.
+    ``clone`` 笔画从 ``sotto``（图层下方合成内容）取样；
+    未提供 ``sotto`` 时不绘制。
     """
     canvas = np.zeros((H, W, 4), np.float32)
     for st in layer.strokes:
@@ -370,19 +367,19 @@ def has_clone(layer: Layer) -> bool:
 
 
 # --------------------------------------------------------------------------
-# posizionamento e maschere
+# 定位和蒙版
 # --------------------------------------------------------------------------
 
 
 def _trasforma(img: Image.Image, layer: Layer, native: tuple[float, float], s: float,
                W: int, H: int, mode: str = "RGBA") -> Image.Image:
-    """Ribalta, ruota e posa ``img`` (gia' scalato) su una tela grande quanto il documento."""
+    """翻转、旋转并将已缩放的 ``img`` 放到文档尺寸的画布上。"""
     if layer.flip_h:
         img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
     if layer.flip_v:
         img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
     if layer.rotation % 360:
-        # positivo = orario, come in Photoshop; PIL ruota in senso antiorario
+        # 正值为顺时针，与 Photoshop 一致；PIL 正值为逆时针。
         img = img.rotate(-layer.rotation, resample=Image.Resampling.BICUBIC, expand=True)
     cx = (layer.x + native[0] * layer.scale / 2) * s
     cy = (layer.y + native[1] * layer.scale / 2) * s
@@ -406,7 +403,7 @@ def _mask_array(layer: Layer, project: Project, base_dir: str | None, s: float, 
     elif m.kind == "image":
         a = project.asset(m.asset)
         mim = load_image(resolve(a.path, base_dir))
-        # una maschera RGBA usa il suo alpha se ce l'ha, altrimenti la luminanza
+        # RGBA 蒙版含透明度时使用 alpha，否则使用亮度。
         alpha = mim.getchannel("A")
         mim = alpha if alpha.getextrema()[0] < 255 else mim.convert("L")
         if layer.type == "image" and layer.crop:
@@ -429,7 +426,7 @@ def _mask_array(layer: Layer, project: Project, base_dir: str | None, s: float, 
                 continue
             a = _stroke_alpha(st, W, H, s)
             r, g, b, _ = fx.parse_color(st.color)
-            # erase su una maschera = torna visibile, come il bianco
+            # 在蒙版上擦除等同于涂白，使内容重新可见。
             v = 1.0 if st.erase else (r + g + b) / 765
             arr = arr * (1 - a) + v * a
         im = Image.fromarray((np.clip(arr, 0, 1) * 255 + 0.5).astype(np.uint8), "L")
@@ -442,7 +439,7 @@ def _mask_array(layer: Layer, project: Project, base_dir: str | None, s: float, 
 
 
 # --------------------------------------------------------------------------
-# fusioni (W3C compositing, alpha non premoltiplicato)
+# 混合（W3C 合成规则，alpha 不预乘）。
 # --------------------------------------------------------------------------
 
 
@@ -468,7 +465,7 @@ def _sat(c: np.ndarray) -> np.ndarray:
 
 
 def _set_sat(c: np.ndarray, s: np.ndarray) -> np.ndarray:
-    """W3C SetSat: il massimo va a ``s``, il minimo a 0, il medio in proporzione."""
+    """W3C SetSat：最大值设为 ``s``，最小值设为 0，中间值按比例缩放。"""
     n = c.min(axis=-1, keepdims=True)
     span = c.max(axis=-1, keepdims=True) - n
     return np.where(span > 1e-6, (c - n) * s / np.maximum(span, 1e-6), 0.0)
@@ -527,11 +524,11 @@ def _blend_fn(mode: str, cb: np.ndarray, cs: np.ndarray) -> np.ndarray:
         return np.minimum(1.0, cb + cs)
     if mode == "subtract":
         return np.maximum(0.0, cb - cs)
-    raise ValueError(f"unknown blend mode {mode!r}")
+    raise ValueError(f"未知混合模式 {mode!r}")
 
 
 def _dissolvi(alpha: np.ndarray) -> np.ndarray:
-    """Dissolve: ogni pixel e' tutto o niente, con probabilita' = alpha. Seme fisso: render puro."""
+    """溶解：像素以 alpha 为概率完全显示或隐藏，固定种子保证渲染确定性。"""
     soglia = np.random.default_rng(1234).random(alpha.shape[:2], dtype=np.float32)[..., None]
     return (soglia < alpha).astype(np.float32)
 
@@ -550,7 +547,7 @@ def blend(bottom: np.ndarray, top: np.ndarray, mode: str = "normal", opacity: fl
 
 
 # --------------------------------------------------------------------------
-# render
+# 渲染
 # --------------------------------------------------------------------------
 
 
@@ -567,9 +564,9 @@ def _applica_effetti(arr: np.ndarray, layer: Layer, kind: str, s: float) -> np.n
 
 def layer_canvas(layer: Layer, project: Project, base_dir: str | None, s: float,
                  W: int, H: int, sotto: np.ndarray | None = None) -> np.ndarray:
-    """Il livello da solo, posato su una tela trasparente del documento, maschera e stili inclusi.
+    """将单个图层放到文档尺寸的透明画布上，包含蒙版和样式。
 
-    ``sotto`` e' il composito sotto il livello: serve al timbro clone.
+    ``sotto`` 为图层下方的合成内容，供仿制图章取样。
     """
     native = None
     px = None
@@ -590,10 +587,10 @@ def layer_canvas(layer: Layer, project: Project, base_dir: str | None, s: float,
     elif layer.type == "paint":
         canvas = _paint_image(layer, W, H, s, sotto)
     elif layer.type == "group":
-        # gruppo isolato: i figli su trasparente, poi il gruppo come un livello solo
+        # 隔离组：先在透明背景上合成子图层，再将整个组作为单层处理。
         canvas = fx.to_pil(_componi(layer.children, project, base_dir, s, np.zeros((H, W, 4), np.float32)))
     else:
-        raise ValueError(f"cannot draw a {layer.type} layer on its own")
+        raise ValueError(f"无法单独绘制 {layer.type} 类型的图层")
     arr = fx.to_np(canvas)
     arr = _applica_effetti(arr, layer, "filter", s)
     m = _mask_array(layer, project, base_dir, s, W, H, native, px)
@@ -611,7 +608,7 @@ def _sfondo(project: Project, W: int, H: int, transparent: bool) -> np.ndarray:
 
 def _regola(out: np.ndarray, layer: Layer, project: Project, base_dir: str | None, s: float,
             W: int, H: int) -> np.ndarray:
-    """Un livello di regolazione su ``out``: filtri, poi rimescolato con maschera e opacita'."""
+    """对 ``out`` 应用调整图层滤镜，再按蒙版和不透明度混合。"""
     adj = out.copy()
     for e in layer.effects:
         if e.enabled:
@@ -628,7 +625,7 @@ def _regola(out: np.ndarray, layer: Layer, project: Project, base_dir: str | Non
 
 def _passante(out: np.ndarray, layer: Layer, project: Project, base_dir: str | None, s: float,
               W: int, H: int) -> np.ndarray:
-    """Gruppo pass-through: i figli lavorano su ``out``; maschera e opacita' dosano il risultato."""
+    """穿透组：子图层直接作用于 ``out``，组蒙版和不透明度控制最终强度。"""
     dopo = _componi(layer.children, project, base_dir, s, out)
     m = _mask_array(layer, project, base_dir, s, W, H, None, None)
     k = layer.opacity * (m[..., None] if m is not None else 1.0)
@@ -639,11 +636,10 @@ def _passante(out: np.ndarray, layer: Layer, project: Project, base_dir: str | N
 
 def _componi(layers: list[Layer], project: Project, base_dir: str | None, s: float,
              out: np.ndarray) -> np.ndarray:
-    """Compone una lista di livelli (dal basso) sopra ``out``.
+    """从下到上将图层列表合成到 ``out``。
 
-    Una maschera di ritaglio e' una serie: la base e i livelli ``clip`` subito
-    sopra si compongono fra loro dentro l'alpha della base, e la serie si fonde
-    poi con il modo e l'opacita' della base, come in Photoshop.
+    剪贴蒙版由基底及紧邻其上方的 ``clip`` 图层组成，先在基底 alpha
+    范围内合成，再按基底的混合模式和不透明度混合，规则与 Photoshop 一致。
     """
     H, W = out.shape[:2]
     i = 0
@@ -654,11 +650,11 @@ def _componi(layers: list[Layer], project: Project, base_dir: str | None, s: flo
             j += 1
         agganciati = [x for x in layers[i + 1:j] if x.visible]
         if not base.visible:
-            # una base nascosta nasconde tutta la sua serie
+            # 隐藏基底时，同时隐藏其整组剪贴图层。
             i = j
             continue
         if base.type == "adjustment":
-            # a una regolazione non si aggancia niente: i clip sopra contano come livelli normali
+            # 调整图层不能作为剪贴基底，上方的 clip 图层按普通图层处理。
             out = _regola(out, base, project, base_dir, s, W, H)
             if agganciati:
                 out = _componi([_sciolto(x) for x in agganciati], project, base_dir, s, out)
@@ -694,7 +690,7 @@ def _sciolto(layer: Layer) -> Layer:
 
 def composite(project: Project, base_dir: str | None = None, scale: float = 1.0,
               upto: int | None = None, transparent: bool = False, skip: set[str] | None = None) -> np.ndarray:
-    """Composito dei livelli in cima ``[0, upto)`` come array float. ``skip``: id da saltare."""
+    """将图层范围 ``[0, upto)`` 合成为浮点数组，跳过 ``skip`` 中的 ID。"""
     W = max(1, int(round(project.width * scale)))
     H = max(1, int(round(project.height * scale)))
     out = _sfondo(project, W, H, transparent)
@@ -706,10 +702,9 @@ def composite(project: Project, base_dir: str | None = None, scale: float = 1.0,
 
 def composite_below(project: Project, layer_id: str, base_dir: str | None = None, scale: float = 1.0,
                     transparent: bool = False) -> np.ndarray:
-    """Cio' che vede un livello sotto di se', anche dentro un gruppo.
+    """获取某图层下方可见的合成结果，也支持组内图层。
 
-    Dentro un gruppo isolato si parte da trasparente; in uno pass-through da
-    quello che c'e' sotto il gruppo.
+    隔离组从透明背景开始；穿透组从组下方的合成内容开始。
     """
     W = max(1, int(round(project.width * scale)))
     H = max(1, int(round(project.height * scale)))
@@ -736,14 +731,14 @@ def render(project: Project, base_dir: str | None = None, scale: float = 1.0,
 
 
 def render_width(project: Project, width: int, base_dir: str | None = None, **kw) -> Image.Image:
-    """Anteprima larga ``width`` pixel (mai piu' grande dell'originale)."""
+    """生成宽度为 ``width`` 像素的预览，不超过原图尺寸。"""
     s = min(1.0, width / max(project.width, 1))
     return render(project, base_dir, scale=s, **kw)
 
 
 def layer_image(project: Project, layer_id: str, base_dir: str | None = None,
                 scale: float = 1.0) -> Image.Image:
-    """Un livello da solo su trasparente (regolazioni: l'effetto su cio' che sta sotto)."""
+    """单独预览透明背景上的图层；调整图层显示其对下方内容的影响。"""
     layer = project.layer(layer_id)
     W = max(1, int(round(project.width * scale)))
     H = max(1, int(round(project.height * scale)))
@@ -755,7 +750,7 @@ def layer_image(project: Project, layer_id: str, base_dir: str | None = None,
 
 
 # --------------------------------------------------------------------------
-# esportazione
+# 导出
 # --------------------------------------------------------------------------
 
 FORMATI = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WEBP", ".tif": "TIFF",
@@ -769,11 +764,11 @@ def save_image(img: Image.Image, path: str | Path, quality: int = 92, background
     p = Path(path)
     fmt = FORMATI.get(p.suffix.lower())
     if fmt is None:
-        raise ValueError(f"unsupported format {p.suffix!r}; use {', '.join(FORMATI)}")
+        raise ValueError(f"不支持的格式 {p.suffix!r}；可使用 {', '.join(FORMATI)}")
     p.parent.mkdir(parents=True, exist_ok=True)
     out = img
     if fmt in ("JPEG", "BMP"):
-        # niente alpha: si appoggia su uno sfondo pieno
+        # 格式不支持 alpha 时，先合成到不透明背景上。
         bg = Image.new("RGBA", img.size, fx.parse_color(background) if background != "transparent"
                        else (255, 255, 255, 255))
         out = Image.alpha_composite(bg, img.convert("RGBA")).convert("RGB")

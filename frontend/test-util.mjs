@@ -1,4 +1,4 @@
-// Funzioni pure della UI, senza browser: node test-util.mjs
+// 无需浏览器的界面纯函数测试：node test-util.mjs。
 import assert from 'node:assert/strict'
 import { addPoint, boxArr, defaultParams, findLayer, fitScale, flatLayers, hitLayer, hitLayerDeep, rectFrom, resizeFromCorner, siblingsOf, stepFor } from './src/util.js'
 
@@ -22,12 +22,12 @@ assert.deepEqual(defaultParams({ params: { a: { type: 'number', default: 2 }, c:
 assert.equal(stepFor({ type: 'int' }), 1)
 assert.equal(stepFor({ type: 'number', min: -1, max: 1 }), 0.01)
 
-// angolo in basso a destra: si allarga mantenendo le proporzioni
+// 拖动右下角时按比例放大。
 assert.deepEqual(resizeFromCorner([0, 0, 100, 50], 'se', { x: 100, y: 0 }), [0, 0, 200, 100])
-// angolo in alto a sinistra: l'angolo opposto resta fermo
+// 拖动左上角时保持对角位置不变。
 assert.deepEqual(resizeFromCorner([10, 10, 100, 50], 'nw', { x: 50, y: 0 }), [60, 35, 50, 25])
 
-// albero dei livelli
+// 图层树
 const albero = [
   { id: 'g', type: 'group', children: [{ id: 'a', box: [0, 0, 10, 10] }, { id: 'b', box: [0, 0, 50, 50] }] },
   { id: 'h', type: 'group', visible: false, children: [{ id: 'c', box: [0, 0, 99, 99] }] },
@@ -40,4 +40,4 @@ assert.equal(hitLayerDeep(albero, { x: 90, y: 90 }).id, 'z')
 assert.equal(findLayer(albero, 'b').parent, 'g')
 assert.deepEqual(siblingsOf(albero, 'b').map(l => l.id), ['a', 'b'])
 
-console.log('test-util ok')
+console.log('界面工具函数测试通过')

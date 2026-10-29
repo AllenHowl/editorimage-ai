@@ -1,4 +1,4 @@
-"""Strumenti MCP: stessi metodi di Store, risposte compatte, immagini vere."""
+"""MCP 工具：共用 Store 方法，返回紧凑数据和真实图片。"""
 
 import asyncio
 import json
@@ -23,14 +23,14 @@ def run(fn, **kw):
 
 
 def test_instructions_keep_the_rules():
-    for frase in ("GUARDA", "NIENTE E' DISTRUTTIVO", "Non esportare mai", "report_issue", "batch"):
+    for frase in ("查看结果", "非破坏式编辑", "禁止自行导出", "report_issue", "batch"):
         assert frase in ms.ISTRUZIONI
 
 
 def test_every_tool_has_a_description():
     for nome in ms.STRUMENTI:
         t = ms.mcp._tool_manager.get_tool(nome)
-        assert t is not None and len(t.description) > 10, nome
+        assert t is not None and len(t.description.strip()) > 3, nome
 
 
 def test_flow(tmp_path, photo):
@@ -74,7 +74,7 @@ def test_batch_atomic_and_one_undo():
 
 
 def test_no_project_error():
-    with pytest.raises(Exception, match="no document open"):
+    with pytest.raises(Exception, match="尚未打开文档"):
         run(ms.project_info)
 
 
@@ -96,7 +96,7 @@ def test_ai_status_reports_missing_comfy():
 
 
 def test_instructions_mention_new_tools():
-    for frase in ("group_layers", "clip=true", "mask_stroke", "edit_image", "describe_image", "costano"):
+    for frase in ("group_layers", "clip=true", "mask_stroke", "edit_image", "describe_image", "费用"):
         assert frase in ms.ISTRUZIONI
 
 

@@ -1,8 +1,8 @@
 [project]
-# Il nome sul pacchetto e' "pedit-mcp", come "vedit-mcp" per l'editor video:
-# coincidendo con il comando del server MCP, `uvx pedit-mcp` funziona senza
-# --from, ed e' la riga che si incolla nella configurazione di qualunque client.
-# Il modulo Python importabile resta `pedit`.
+# 包名为 pedit-mcp，与视频编辑器的 vedit-mcp 保持一致。
+# 包名与 MCP 服务命令相同，执行 `uvx pedit-mcp` 无需
+# 指定 --from，可直接复制到任意客户端的配置中。
+# Python 导入模块名仍为 pedit。
 name = "pedit-mcp"
 version = "0.1.0"
 description = "Open-source AI image editor and MCP server: layers, masks, generative fill, image-to-image, background removal. A Photoshop/GIMP alternative an AI agent can drive, local or with your OpenAI, Gemini or Stability API key."
@@ -22,8 +22,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "Natural Language :: Italian",
-    "Natural Language :: English",
+    "Natural Language :: Chinese (Simplified)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -41,13 +40,13 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",
-    # corpi delle richieste dell'API (arriva con fastapi, ma lo importiamo noi)
+    # API 请求体模型；虽然 FastAPI 会引入它，但本项目也直接导入。
     "pydantic>=2.0",
-    # il motore: composizione, fusioni, regolazioni e filtri stanno tutti su
-    # numpy e Pillow. Non sono extra, sono l'editor.
+    # 合成、混合、调整和滤镜均依赖 numpy 与 Pillow，
+    # 它们是编辑器核心依赖，而非可选扩展。
     "numpy>=1.24",
     "pillow>=10.0",
-    # importato direttamente da mcp_server, non solo di rimbalzo da mcp
+    # mcp_server 直接导入此包，不能仅依赖 mcp 间接安装。
     "anyio>=4.0",
 ]
 
@@ -60,12 +59,12 @@ Changelog = "https://github.com/metiutek/editorimage-ai/commits/main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]
-# serve solo per l'assistente dentro la UI con una chiave Anthropic; gli altri
-# motori (Claude Code, compatibili OpenAI, Ollama) non vogliono niente
+# 仅供使用 Anthropic 密钥的内置助手使用；
+# Claude Code、OpenAI 兼容服务和 Ollama 无需此依赖。
 chat = ["anthropic>=0.40"]
-# IA locale: scontorno (rembg, modelli onnx scaricati al primo uso) e
-# riempimento classico (OpenCV). Senza, remove_background/select_subject
-# dicono cosa installare e inpaint ripiega sulla diffusione in numpy.
+# 本地 AI：rembg 抠图，首次使用时下载 ONNX 模型；
+# OpenCV 提供传统填充。未安装时，remove_background/select_subject
+# 会提示安装方法，inpaint 则回退到 numpy 扩散填充。
 ai = ["rembg>=2.0.50", "onnxruntime>=1.17", "opencv-python-headless>=4.8"]
 
 [project.scripts]
@@ -79,8 +78,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["backend"]
 
-# L'interfaccia compilata viaggia dentro il pacchetto: chi installa da PyPI non
-# ha Node per compilarla. La copia scripts/build_wheel.py da frontend/dist.
+# 编译后的界面随安装包分发，PyPI 用户无需 Node 编译。
+# scripts/build_wheel.py 负责从 frontend/dist 复制资源。
 [tool.setuptools.package-data]
 pedit = ["webui/**/*", "fonts/*"]
 

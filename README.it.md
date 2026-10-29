@@ -108,13 +108,16 @@ pedit export poster.json poster.jpg --quality 90
 
 ## Test e sviluppo
 
+Per Tencent Cloud, consulta la [guida al deployment Docker](deploy/tencent-cloud/README.md).
+Include accesso privato via SSH e un'opzione HTTPS con autenticazione.
+
 ```bash
 python scripts/setup.py --venv
 pytest
 cd frontend && npm run build && npm test
 ```
 
-Codice e commenti in italiano; cio' che legge l'utente in inglese. Leggi [AGENTS.md](AGENTS.md).
+Commenti, docstring e interfaccia dell'editor sono in cinese semplificato; gli identificatori API e i campi del documento restano invariati. Leggi [AGENTS.md](AGENTS.md).
 
 ## Licenza
 

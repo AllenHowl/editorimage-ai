@@ -1,7 +1,6 @@
-"""Servizi in rete con la chiave dell'utente: richieste giuste, risposte lette, errori chiari.
+"""使用用户密钥的在线服务：验证请求格式、响应解析和清晰的错误提示。
 
-Niente rete: ``cloud._http`` e' sostituita da un finto server che registra cosa
-riceve e risponde come il servizio vero.
+不访问网络，以记录请求并模拟真实响应的服务替换 ``cloud._http``。
 """
 
 import base64
@@ -26,7 +25,7 @@ def _b64(color=(0, 200, 0), size=(64, 48)):
 
 
 class Finto:
-    """Risponde in ordine con le risposte date; registra le richieste."""
+    """按顺序返回给定响应，并记录请求。"""
 
     def __init__(self, *risposte):
         self.risposte = list(risposte)
@@ -77,16 +76,16 @@ def test_key_from_the_assistant_settings_is_reused():
 def test_auto_never_spends_without_a_default():
     cloud.imposta("openai", chiave="sk-x")
     assert cloud.scegli("generate") is None
-    assert cloud.scegli("describe") == "openai"      # niente di locale per descrivere
+    assert cloud.scegli("describe") == "openai"      # 没有内置本地图片描述引擎。
     cloud.imposta("openai", default=True)
     assert cloud.scegli("generate") == "openai"
-    assert cloud.scegli("upscale") is None            # openai non lo fa: si resta in locale
+    assert cloud.scegli("upscale") is None            # OpenAI 不支持此任务，继续使用本地实现。
 
 
 def test_named_service_without_key_explains():
-    with pytest.raises(cloud.CloudError, match="paste the Stability AI API key"):
+    with pytest.raises(cloud.CloudError, match="请粘贴 Stability AI API 密钥"):
         cloud.scegli("generate", "stability")
-    with pytest.raises(cloud.CloudError, match="does not do upscale"):
+    with pytest.raises(cloud.CloudError, match="不支持 upscale"):
         cloud.scegli("upscale", "gemini")
 
 
@@ -220,15 +219,15 @@ def test_custom_openai_compatible_address(finto):
 def test_errors_are_readable(finto):
     cloud.imposta("openai", chiave="sk-bad")
     finto((401, {"error": {"message": "Incorrect API key provided"}}))
-    with pytest.raises(cloud.CloudError, match="invalid key.*Incorrect API key"):
+    with pytest.raises(cloud.CloudError, match="密钥无效.*Incorrect API key"):
         cloud.generate("openai", "x", 512, 512)
     finto((429, {"error": {"message": "quota"}}))
-    with pytest.raises(cloud.CloudError, match="rate limit"):
+    with pytest.raises(cloud.CloudError, match="速率或配额限制"):
         cloud.generate("openai", "x", 512, 512)
 
 
 # --------------------------------------------------------------------------
-# dall'editor
+# 从编辑器发起。
 # --------------------------------------------------------------------------
 
 
@@ -245,14 +244,14 @@ def test_store_inpaint_uses_default_service_with_prompt(store, finto):
     f = finto((200, _png(size=(300, 200))))
     v = store.inpaint([100, 50, 60, 60], prompt="a red ball")
     assert v["backend"] == "stability" and "edit/inpaint" in f.richieste[0]["url"]
-    # senza prompt resta la rimozione locale, che non costa niente
+    # 没有提示词时继续使用免费的本地物体移除。
     v = store.inpaint([10, 10, 20, 20])
     assert v["backend"] in ("opencv", "diffusion") and len(f.richieste) == 1
 
 
 def test_store_describe_and_errors(store, finto):
     store.add_fill(color="#ff0000")
-    with pytest.raises(EditError, match="vision model"):
+    with pytest.raises(EditError, match="视觉模型"):
         store.describe_image()
     cloud.imposta("anthropic", chiave="sk-ant")
     finto((200, {"content": [{"type": "text", "text": "Red."}]}))
@@ -275,5 +274,5 @@ def test_ai_status_lists_online_services():
 
 
 def test_unknown_backend_is_explained(store):
-    with pytest.raises(EditError, match="unknown backend"):
+    with pytest.raises(EditError, match="未知后端"):
         store.generate_image("x", backend="midjourney")

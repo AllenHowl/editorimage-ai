@@ -226,12 +226,15 @@ cd frontend && npm run build && npm test
 
 ## Development
 
+For a Tencent Cloud server, see [the Docker deployment guide](deploy/tencent-cloud/README.md).
+It includes private SSH access and an HTTPS option with authentication.
+
 ```bash
 git clone https://github.com/metiutek/editorimage-ai && cd editorimage-ai
 python scripts/setup.py --venv        # deps, UI build, MCP registration, doctor, tests
 ```
 
-Code and comments are in Italian (project convention); everything a user reads is in English.
+Comments, docstrings and editor UI text use Simplified Chinese. API identifiers and document fields stay unchanged.
 See [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License

@@ -1,7 +1,7 @@
-"""Fixture comuni: immagini sintetiche, documenti in cartelle temporanee.
+"""共用测试夹具：合成图片及临时目录中的文档。
 
-Niente rete, niente modelli: ``PEDIT_HOME`` punta a una cartella temporanea
-cosi' i test non toccano ``~/.pedit`` di chi li lancia.
+不访问网络或真实模型；``PEDIT_HOME`` 指向临时目录，
+避免测试修改运行者的 ``~/.pedit`` 配置。
 """
 
 from __future__ import annotations
@@ -16,14 +16,14 @@ from pedit.store import Store
 @pytest.fixture(autouse=True)
 def _home(tmp_path, monkeypatch):
     monkeypatch.setenv("PEDIT_HOME", str(tmp_path / "home"))
-    # porta chiusa: ComfyUI "spento"
+    # 使用关闭的端口，模拟未运行的 ComfyUI。
     monkeypatch.setenv("PEDIT_COMFY_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("PEDIT_SEGNALAZIONI", str(tmp_path / "SEGNALAZIONI.md"))
 
 
 @pytest.fixture
 def photo(tmp_path):
-    """Foto finta: gradiente orizzontale con un quadrato giallo in mezzo."""
+    """合成照片：水平渐变，中间有一个黄色方块。"""
     h, w = 120, 240
     arr = np.zeros((h, w, 3), np.uint8)
     arr[..., 0] = np.linspace(0, 255, w)[None, :]

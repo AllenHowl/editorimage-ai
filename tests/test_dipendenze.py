@@ -1,7 +1,6 @@
-"""Ogni import del backend dev'essere dichiarato in pyproject.toml.
+"""所有后端导入都必须在 pyproject.toml 声明。
 
-Un pacchetto presente sulla macchina di chi sviluppa ma assente dal wheel non
-si vede finche' qualcuno non installa da PyPI.
+开发机上已安装但未写入依赖的包，通常直到用户从 PyPI 安装时才会暴露问题。
 """
 
 import ast
@@ -9,7 +8,7 @@ import sys
 from pathlib import Path
 
 RADICE = Path(__file__).resolve().parents[1]
-# nome di import -> nome del pacchetto su PyPI
+# 导入名到 PyPI 包名的映射。
 ALIAS = {"PIL": "pillow", "cv2": "opencv-python-headless", "multipart": "python-multipart"}
 
 

@@ -1,4 +1,4 @@
-"""API della UI: le stesse operazioni di Store via HTTP."""
+"""界面 API 测试：通过 HTTP 调用相同的 Store 操作。"""
 
 import io
 
@@ -22,6 +22,12 @@ def client(tmp_path):
 def test_state_without_project(client):
     r = client.get("/api/state").json()
     assert r["project"] is None and any(e["name"] == "blur" for e in r["effects"])
+    for effect in r["effects"]:
+        assert any("\u4e00" <= c <= "\u9fff" for c in effect["label"])
+        assert any("\u4e00" <= c <= "\u9fff" for c in effect["desc"])
+        for param in effect["params"].values():
+            assert any("\u4e00" <= c <= "\u9fff" for c in param["desc"])
+    assert next(look for look in r["looks"] if look["name"] == "warm")["label"] == "暖色"
 
 
 def test_create_op_render(client, tmp_path, photo):
@@ -44,7 +50,7 @@ def test_bad_op(client):
     client.post("/api/project/create", json={"width": 10, "height": 10})
     assert client.post("/api/op/nope", json={}).status_code == 404
     r = client.post("/api/op/set_layer", json={"layer": "zz", "opacity": 0.5})
-    assert r.status_code == 400 and "layer not found" in r.json()["detail"]
+    assert r.status_code == 400 and "未找到图层" in r.json()["detail"]
     r = client.post("/api/op/add_text", json={"bogus": 1})
     assert r.status_code == 400
 
@@ -66,7 +72,7 @@ def test_browse(client, tmp_path, photo):
 
 def test_review_and_analyze(client):
     client.post("/api/project/create", json={"width": 100, "height": 100})
-    assert client.get("/api/review").json()["ok"] is False      # documento vuoto
+    assert client.get("/api/review").json()["ok"] is False      # 空文档
     client.post("/api/op/add_fill", json={"color": "#808080"})
     a = client.get("/api/analyze").json()
     assert abs(a["brightness"] - 0.5) < 0.05

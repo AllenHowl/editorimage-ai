@@ -1,6 +1,6 @@
-// La tela: l'immagine renderizzata dal server (identica all'export) e sopra uno
-// strato SVG in coordinate del documento per selezioni, riquadri e pennellate.
-// Nessun pixel si calcola qui: ogni gesto finisce in un'operazione di Store.
+// 画布使用服务器渲染的图片，与导出结果一致；上方覆盖使用文档坐标的
+// SVG 图层，用于选区、边界和笔画预览。
+// 此处不计算图片像素，每个编辑手势最终都调用 Store 操作。
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { addPoint, boxArr, findLayer, fitScale, hitLayer, hitLayerDeep, rectFrom, resizeFromCorner } from './util.js'
 
@@ -13,7 +13,7 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
   const [wanted, setWanted] = useState(null)
   const latest = useRef(null)
   const [drag, setDragState] = useState(null)
-  // il gesto vive anche in un ref: pointerup puo' arrivare prima del render che vede l'ultimo move
+  // 同时用 ref 保存手势，避免 pointerup 早于最后一次移动触发的渲染。
   const dragRef = useRef(null)
   const setDrag = v => {
     dragRef.current = typeof v === 'function' ? v(dragRef.current) : v
@@ -34,14 +34,14 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
   const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1
   const reqW = Math.min(W, Math.ceil(W * scale * dpr / 64) * 64)
 
-  // si precarica la nuova anteprima e si sostituisce solo quando e' pronta: niente lampi
+  // 预加载新预览，仅在就绪后替换旧图，避免闪烁。
   useEffect(() => {
     if (!project) return
     const src = `/api/render?w=${reqW}&rev=${revision}`
     setWanted(src)
     latest.current = src
     const img = new Image()
-    // un'anteprima vecchia che arriva dopo la nuova non deve sostituirla
+    // 迟到的旧预览不得覆盖新预览。
     const done = () => { if (latest.current === src) setShown(src) }
     img.onload = done
     img.onerror = done
@@ -113,9 +113,9 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
       const target = sel && sel.type === 'paint' && !sel.locked ? sel.id : null
       const o = toolOpts
       if (tool === 'spot') {
-        await onAI('inpaint', { points: d.points, size: o.size, feather: Math.max(2, o.size / 6) }, 'Healing…')
+        await onAI('inpaint', { points: d.points, size: o.size, feather: Math.max(2, o.size / 6) }, '正在修复…')
       } else if (tool === 'clone') {
-        // allineato: lo spostamento si fissa alla prima pennellata e resta
+        // 对齐模式：首笔确定取样偏移，之后保持不变。
         const off = clone.offset || [clone.src.x - d.points[0][0], clone.src.y - d.points[0][1]]
         if (!clone.offset) setClone({ ...clone, offset: off })
         await run('paint_stroke', { points: d.points, layer: target, size: o.size, hardness: o.hardness,
@@ -139,7 +139,7 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
     }
   }
 
-  // riquadro del livello selezionato, spostato durante il trascinamento
+  // 拖动时同步移动所选图层的边界框。
   let selBox = sel?.box
   if (drag?.kind === 'move' && selBox) selBox = [drag.box[0] + drag.cur.x - drag.start.x, drag.box[1] + drag.cur.y - drag.start.y, drag.box[2], drag.box[3]]
   if (drag?.kind === 'resize' && selBox) selBox = resizeFromCorner(drag.box, drag.corner, { x: drag.cur.x - drag.start.x, y: drag.cur.y - drag.start.y })
@@ -159,7 +159,7 @@ export default function Canvas({ project, revision, tool, toolOpts, selection, s
         <div className={'stage' + (project.background === 'transparent' ? ' checker' : '')}
           style={{ width: W * scale, height: H * scale }}>
           {shown && <img src={shown} alt="" draggable={false} />}
-          {wanted && wanted !== shown && <div className="rendering">rendering…</div>}
+          {wanted && wanted !== shown && <div className="rendering">正在渲染…</div>}
           <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W * scale} height={H * scale} style={{ cursor }}
             onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={() => setCursor(null)}>
             {selection && (selection.kind === 'ellipse'

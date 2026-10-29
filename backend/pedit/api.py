@@ -1,9 +1,7 @@
-"""API REST/WebSocket per l'interfaccia web, piu' il server MCP su ``/mcp``.
+"""网页界面的 REST/WebSocket API，以及挂载到 ``/mcp`` 的 MCP 服务。
 
-Nessuna modifica al documento nasce qui: ``/api/op/{nome}`` chiama il metodo
-omonimo di ``Store``, lo stesso che chiamano l'agente MCP e l'assistente.
-Qui ci sono solo trasporto, anteprime in cache e l'attesa delle risposte
-dell'utente (conferma dell'export).
+``/api/op/{nome}`` 调用 ``Store`` 的同名方法，与 MCP 智能体及助手共用编辑操作。
+本模块仅负责传输、预览缓存及等待用户响应（如导出确认）。
 """
 
 from __future__ import annotations
@@ -35,7 +33,7 @@ from .store import PRESETS, EditError, Store
 
 
 def _frontend_dir() -> Path:
-    """UI compilata: dentro il pacchetto se installato da pip, altrimenti frontend/dist."""
+    """编译后的界面：pip 安装时读取包内资源，源码运行时读取 frontend/dist。"""
     dentro = Path(__file__).resolve().parent / "webui"
     if (dentro / "index.html").is_file():
         return dentro
@@ -44,7 +42,7 @@ def _frontend_dir() -> Path:
 
 FRONTEND = _frontend_dir()
 
-# operazioni di editing esposte alla UI (nomi dei metodi di Store)
+# 暴露给界面的编辑操作（Store 方法名）。
 OPS = {
     "set_document", "import_images", "remove_asset",
     "add_image", "add_text", "add_shape", "add_fill", "add_adjustment", "add_paint_layer",
@@ -61,7 +59,7 @@ OPS = {
 
 
 class Session:
-    """Documento aperto + ascoltatori. Una sola sessione per processo."""
+    """当前文档和事件监听器；每个进程仅有一个会话。"""
 
     def __init__(self) -> None:
         self.store: Store | None = None
@@ -78,7 +76,7 @@ class Session:
 
     def need(self) -> Store:
         if self.store is None:
-            raise HTTPException(400, "no document open")
+            raise HTTPException(400, "尚未打开文档")
         return self.store
 
     def publish(self, event: dict) -> None:
@@ -91,7 +89,7 @@ class Session:
             self.loop.call_soon_threadsafe(q.put_nowait, event)
 
     def revision(self) -> str:
-        """Impronta del contenuto: uno stato e il suo undo ritrovano le stesse anteprime."""
+        """内容指纹：撤销回同一状态时复用相同的预览。"""
         st = self.store
         if st is None:
             return "0"
@@ -109,7 +107,7 @@ class Session:
                 "revision": self.revision(), "seq": self.seq}
 
     def snapshot(self) -> tuple[Project, str | None]:
-        """Copia del documento da renderizzare fuori dal lock."""
+        """复制文档，以便在锁外渲染。"""
         with self.lock:
             st = self.need()
             return Project.from_obj(st.project.to_dict()), st.base_dir
@@ -128,7 +126,7 @@ S = Session()
 
 
 def attach(store: Store) -> None:
-    """La UI lavora su questo Store (anche quello dell'agente MCP: open_ui)."""
+    """让界面操作此 Store，也可与 MCP 智能体共享（open_ui）。"""
     S.store = store
     store.on_change = lambda: S.publish({"type": "project"})
     S.chat.clear()
@@ -136,7 +134,7 @@ def attach(store: Store) -> None:
 
 
 # --------------------------------------------------------------------------
-# server MCP montato su /mcp
+# 挂载到 /mcp 的 MCP 服务。
 # --------------------------------------------------------------------------
 
 
@@ -146,7 +144,7 @@ class _PonteMcp:
 
     async def __call__(self, scope, receive, send):
         if self.app is None:
-            await JSONResponse({"detail": "MCP server not running"}, status_code=503)(scope, receive, send)
+            await JSONResponse({"detail": "MCP 服务尚未运行"}, status_code=503)(scope, receive, send)
             return
         await self.app(scope, receive, send)
 
@@ -167,7 +165,7 @@ async def _vita(_app):
         sub = mcp_server.mcp.streamable_http_app(
             streamable_http_path="/", stateless_http=True,
             transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
-    except Exception:  # noqa: BLE001 - senza MCP l'interfaccia funziona lo stesso
+    except Exception:  # noqa: BLE001 - MCP 不可用时，网页界面仍可正常使用。
         sub = None
     if sub is None:
         yield
@@ -198,13 +196,13 @@ def _nome_host(valore: str) -> str:
 
 @app.middleware("http")
 async def _solo_locale(request: Request, call_next):
-    """L'API legge e scrive file ovunque: niente DNS rebinding, niente richieste da altri siti."""
+    """API 可读写文件，因此阻止 DNS 重绑定及其他网站发起的请求。"""
     if _host_consentiti:
         if _nome_host(request.headers.get("host", "")) not in _host_consentiti:
-            return JSONResponse({"detail": "non-local request refused"}, status_code=403)
+            return JSONResponse({"detail": "已拒绝非本地请求"}, status_code=403)
         origin = request.headers.get("origin")
         if origin is not None and _nome_host(origin.split("://", 1)[-1]) not in _host_consentiti:
-            return JSONResponse({"detail": "cross-site request refused"}, status_code=403)
+            return JSONResponse({"detail": "已拒绝跨站请求"}, status_code=403)
     return await call_next(request)
 
 
@@ -215,7 +213,7 @@ def mcp_url() -> str | None:
 
 
 # --------------------------------------------------------------------------
-# stato e documento
+# 状态和文档
 # --------------------------------------------------------------------------
 
 
@@ -251,7 +249,7 @@ def project_state() -> dict:
 
 
 class CreateBody(BaseModel):
-    name: str = "untitled"
+    name: str = "未命名"
     preset: str | None = None
     width: int | None = None
     height: int | None = None
@@ -276,7 +274,7 @@ def project_create(body: CreateBody) -> dict:
 @app.post("/api/project/open")
 def project_open(body: PathBody) -> dict:
     if not body.path:
-        raise HTTPException(400, "path missing")
+        raise HTTPException(400, "缺少文件路径")
     try:
         attach(Store.open(body.path))
     except (EditError, OSError, ValueError) as exc:
@@ -306,15 +304,15 @@ def _plain(x: Any) -> Any:
 
 @app.post("/api/op/{name}")
 def op(name: str, body: dict | None = None) -> dict:
-    """Esegue un'operazione di Store e restituisce lo stato aggiornato."""
+    """执行 Store 操作并返回更新后的状态。"""
     if name not in OPS:
-        raise HTTPException(404, f"unknown operation: {name}")
+        raise HTTPException(404, f"未知操作：{name}")
     st = S.need()
     try:
         with S.lock:
             result = getattr(st, name)(**dict(body or {}))
     except TypeError as exc:
-        raise HTTPException(400, f"invalid arguments for {name}: {exc}") from exc
+        raise HTTPException(400, f"以下操作的参数无效：{name}: {exc}") from exc
     except (EditError, ValueError, KeyError, FileNotFoundError) as exc:
         msg = str(exc.args[0]) if isinstance(exc, KeyError) and exc.args else str(exc)
         raise HTTPException(400, msg) from exc
@@ -322,7 +320,7 @@ def op(name: str, body: dict | None = None) -> dict:
 
 
 # --------------------------------------------------------------------------
-# anteprime
+# 预览
 # --------------------------------------------------------------------------
 
 
@@ -337,7 +335,7 @@ def _png(img: Image.Image, fmt: str = "PNG") -> bytes:
 
 @app.get("/api/render")
 def render_doc(w: int = 1200, rev: str = "") -> Response:
-    """Il documento renderizzato, largo al massimo ``w`` (trasparenza conservata)."""
+    """渲染文档，最大宽度为 ``w``，保留透明度。"""
     w = max(32, min(int(w), 8000))
     snap, base = S.snapshot()
     key = ("doc", S.revision(), w)
@@ -384,7 +382,7 @@ def asset_file(asset_id: str, size: int = 0):
         raise HTTPException(404, str(exc)) from exc
     p = render.resolve(a.path, st.base_dir)
     if not p.is_file():
-        raise HTTPException(404, "file missing")
+        raise HTTPException(404, "文件不存在")
     if size:
         img = render.load_image(p).copy()
         img.thumbnail((size, size))
@@ -416,7 +414,7 @@ def ai_status() -> dict:
 
 
 # --------------------------------------------------------------------------
-# file: sfoglia, importa, carica, esporta
+# 文件：浏览、导入、上传和导出。
 # --------------------------------------------------------------------------
 
 
@@ -463,7 +461,7 @@ def importa(body: ImportBody) -> dict:
 
 @app.post("/api/upload")
 async def upload(files: list[UploadFile] = File(...), add: str = Form("1")) -> dict:
-    """File trascinati nel browser: copiati nella cartella degli asset (il browser non da' il percorso)."""
+    """将拖入浏览器的文件复制到素材目录，因为浏览器不提供原始路径。"""
     st = S.need()
     dest = st.assets_dir() / "uploads"
     dest.mkdir(parents=True, exist_ok=True)
@@ -477,7 +475,7 @@ async def upload(files: list[UploadFile] = File(...), add: str = Form("1")) -> d
             shutil.copyfileobj(f.file, out)
         salvati.append(str(target))
     if not salvati:
-        raise HTTPException(400, "no images in the upload")
+        raise HTTPException(400, "上传内容中没有图片")
     return await asyncio.to_thread(importa, ImportBody(paths=salvati, add=add == "1"))
 
 
@@ -498,19 +496,19 @@ def export(body: ExportBody) -> dict:
 
 
 # --------------------------------------------------------------------------
-# domande all'utente (conferma export dall'agente)
+# 向用户提问（确认智能体发起的导出）。
 # --------------------------------------------------------------------------
 
 
 def conferma_export(path: str, timeout: float = 600) -> bool:
-    """L'agente vuole scrivere un file: lo decide l'utente, nel browser."""
+    """智能体请求写入文件时，在浏览器中等待用户决定。"""
     if not S.listeners:
         return False
     qid = uuid.uuid4().hex[:10]
     ev = threading.Event()
     S.domande[qid] = {"event": ev, "answer": False}
     S.publish({"type": "question", "id": qid, "kind": "export",
-               "text": f"The assistant wants to export the image to {path}. Allow?"})
+               "text": f"助手请求将图片导出到 {path}。是否允许？"})
     ev.wait(timeout)
     return bool(S.domande.pop(qid, {}).get("answer"))
 
@@ -524,14 +522,14 @@ class AnswerBody(BaseModel):
 def answer(body: AnswerBody) -> dict:
     d = S.domande.get(body.id)
     if d is None:
-        raise HTTPException(404, "no such question")
+        raise HTTPException(404, "未找到该确认请求")
     d["answer"] = body.ok
     d["event"].set()
     return {"ok": True}
 
 
 # --------------------------------------------------------------------------
-# assistente
+# 助手
 # --------------------------------------------------------------------------
 
 
@@ -590,7 +588,7 @@ def chat(body: ChatBody) -> StreamingResponse:
         try:
             for ev in chat_mod.run(st, S.chat, body.question, body.refs, mcp_url(), S.fermo.is_set):
                 yield json.dumps(ev, ensure_ascii=False) + "\n"
-        except Exception as exc:  # noqa: BLE001 - l'errore va nella chat, non nel log del server
+        except Exception as exc:  # noqa: BLE001 - 将错误发送到聊天界面，而非服务器日志。
             yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
 
     return StreamingResponse(flusso(), media_type="application/x-ndjson")
@@ -609,7 +607,7 @@ def chat_reset() -> dict:
 
 
 # --------------------------------------------------------------------------
-# eventi
+# 事件
 # --------------------------------------------------------------------------
 
 
@@ -632,17 +630,17 @@ async def ws(socket: WebSocket) -> None:
         S.listeners.discard(q)
 
 
-# interfaccia compilata (montata per ultima: le rotte /api vincono)
+# 最后挂载编译后的界面，保证 /api 路由优先匹配。
 if FRONTEND.is_dir():
     app.mount("/", StaticFiles(directory=str(FRONTEND), html=True), name="ui")
 else:
     @app.get("/")
     def _senza_ui() -> JSONResponse:
-        return JSONResponse({"detail": "web UI not built: cd frontend && npm ci && npm run build"})
+        return JSONResponse({"detail": "网页界面尚未构建：cd frontend && npm ci && npm run build"})
 
 
 # --------------------------------------------------------------------------
-# avvio
+# 启动
 # --------------------------------------------------------------------------
 
 _bg: dict[str, Any] = {}
@@ -675,7 +673,7 @@ def background_info() -> dict | None:
 
 
 def serve_background(store: Store, port: int = 8770) -> str:
-    """Interfaccia nello stesso processo del server MCP: stesso Store, aggiornamenti dal vivo."""
+    """在 MCP 服务进程内启动界面，共享 Store 并实时同步。"""
     import uvicorn
 
     attach(store)

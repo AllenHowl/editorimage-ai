@@ -1,0 +1,24 @@
+services:
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      editor:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PEDIT_DOMAIN: ${PEDIT_DOMAIN:?请设置已解析到服务器的域名}
+      PEDIT_USERNAME: ${PEDIT_USERNAME:?请设置登录用户名}
+      PEDIT_PASSWORD_HASH: ${PEDIT_PASSWORD_HASH:?请设置 bcrypt 密码哈希}
+      # 容器内的编辑器连接不经过服务器可能配置的外部代理。
+      NO_PROXY: editor,localhost,127.0.0.1
+      no_proxy: editor,localhost,127.0.0.1
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:

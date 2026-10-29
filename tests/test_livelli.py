@@ -1,4 +1,4 @@
-"""Gruppi, maschere di ritaglio, maschere dipinte, timbro clone, espansione: guardati nei pixel."""
+"""通过像素验证图层组、剪贴蒙版、绘画蒙版、仿制图章和扩图。"""
 
 import json
 
@@ -19,7 +19,7 @@ def _fondo(color="#646464", w=40, h=30):
 
 
 # --------------------------------------------------------------------------
-# fusioni nuove
+# 新增混合模式
 # --------------------------------------------------------------------------
 
 
@@ -57,7 +57,7 @@ def test_dissolve_is_all_or_nothing_and_stable():
 
 
 # --------------------------------------------------------------------------
-# gruppi
+# 图层组
 # --------------------------------------------------------------------------
 
 
@@ -92,7 +92,7 @@ def test_hidden_group_hides_children():
 
 
 # --------------------------------------------------------------------------
-# maschere di ritaglio
+# 剪贴蒙版
 # --------------------------------------------------------------------------
 
 
@@ -124,7 +124,7 @@ def test_clip_series_uses_base_blend_and_opacity():
 
 
 # --------------------------------------------------------------------------
-# maschere dipinte
+# 绘画蒙版
 # --------------------------------------------------------------------------
 
 
@@ -155,7 +155,7 @@ def test_strokes_refine_any_mask():
 
 
 # --------------------------------------------------------------------------
-# timbro clone e pennello correttivo
+# 仿制图章和修复画笔
 # --------------------------------------------------------------------------
 
 
@@ -171,7 +171,7 @@ def test_clone_copies_from_below():
     p.layers.append(Layer(id="P", type="paint", strokes=[
         Stroke(points=[[45, 20]], size=10, hardness=1, clone=[-30, 0])]))
     assert px(render.render(p), 45, 20)[:3] == (255, 0, 0)
-    # da solo (anteprima del livello) il clone vede comunque cio' che sta sotto
+    # 单独预览图层时，仿制图章仍可读取下方合成内容。
     assert px(render.layer_image(p, "P"), 45, 20)[:3] == (255, 0, 0)
 
 
@@ -185,7 +185,7 @@ def test_heal_takes_light_from_destination():
 
 
 # --------------------------------------------------------------------------
-# Store
+# Store 操作
 # --------------------------------------------------------------------------
 
 
@@ -215,7 +215,7 @@ def test_move_into_and_out_of_group(store):
     assert store.project.parent(a).id == g["id"]
     store.move_layer(a, into="root")
     assert store.project.parent(a) is None
-    with pytest.raises(EditError, match="inside itself"):
+    with pytest.raises(EditError, match="移入自身"):
         store.move_layer(g["id"], into=g["id"])
 
 
@@ -235,7 +235,7 @@ def test_nested_layers_are_editable_and_saved(store, tmp_path):
 
 def test_clip_needs_a_layer_below(store):
     a, b = _due_livelli(store)
-    with pytest.raises(EditError, match="no layer below"):
+    with pytest.raises(EditError, match="下方图层"):
         store.set_layer(a, clip=True)
     assert store.set_layer(b, clip=True)["clip"] is True
 
@@ -285,7 +285,7 @@ def test_spot_heal_with_points(store):
     store.add_fill(color="#808080")
     store.add_shape(x=190, y=90, w=20, h=20, fill="#ff0000")
     v = store.inpaint(points=[[200, 100]], size=40, backend="diffusion")
-    assert v["name"].startswith("Healed")
+    assert v["name"].startswith("修复结果")
     r, g, b, _ = px(render.render(store.project, store.base_dir), 200, 100)
     assert abs(r - g) < 40
 
@@ -294,7 +294,7 @@ def test_expand_canvas_classic(store, photo):
     a = store.add_image(path=photo, x=0, y=0, fit="none")
     v = store.expand_canvas(left=40, right=40, backend="diffusion")
     assert (v["width"], v["height"]) == (480, 200)
-    assert store.project.layers[-1].name.startswith("Expanded")
+    assert store.project.layers[-1].name.startswith("扩图结果")
     assert store.project.layer(a["id"]).x == 40
     img = render.render(store.project, store.base_dir)
     assert px(img, 5, 50)[3] == 255

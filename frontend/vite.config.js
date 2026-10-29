@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// In sviluppo (`npm run dev`) le chiamate vanno al backend su 8770;
-// in produzione il backend serve direttamente la cartella dist.
+// 开发模式（npm run dev）将请求代理到 8770 端口的后端；
+// 生产模式由后端直接提供 dist 目录中的静态文件。
 export default defineConfig({
   plugins: [react()],
   base: './',

@@ -1,4 +1,4 @@
-"""Riga di comando: le stesse operazioni dell'interfaccia, sullo stesso file."""
+"""命令行入口：对同一文档执行与界面相同的操作。"""
 
 from __future__ import annotations
 

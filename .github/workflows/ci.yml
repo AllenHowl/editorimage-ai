@@ -1,7 +1,7 @@
-# Test a ogni push e a ogni pull request.
+# 每次推送和提交拉取请求时运行测试。
 #
-# Serve anche al rilascio: release.yml richiama questo workflow con
-# `workflow_call`, cosi' su PyPI non finisce niente che non sia passato di qui.
+# 发布流程也会通过 `workflow_call` 调用此工作流，
+# 确保发布到 PyPI 的版本已经通过这些检查。
 name: ci
 
 on:
@@ -46,7 +46,7 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      # i test della UI montano il bundle compilato: prima si compila
+      # 界面测试会加载编译后的包，因此先构建界面。
       - name: compila
         working-directory: frontend
         run: npm run build

@@ -1,10 +1,9 @@
-"""Installazione da repo appena clonata, in un comando: ``python scripts/setup.py``.
+"""从刚克隆的仓库一键安装：``python scripts/setup.py``。
 
-Passi: dipendenze Python, interfaccia web compilata, server MCP registrato in
-``.mcp.json``, ``pedit doctor``, test veloci. Rilanciarlo e' sicuro: cio' che
-e' gia' a posto viene saltato. Con ``--json`` l'unico output e' un oggetto JSON
-(``result`` ok/warn/fail e la lista dei passi con ``status``, ``detail``,
-``hint``): e' la forma da leggere per un agente.
+依次安装 Python 依赖、构建网页界面、在 ``.mcp.json`` 注册 MCP 服务，
+运行 ``pedit doctor`` 和快速测试。可安全重复执行，已就绪的步骤会跳过。
+``--json`` 仅输出一个 JSON 对象，包含 ``result``（ok/warn/fail）及各步骤的
+``status``、``detail``、``hint``，供智能体读取。
 """
 
 from __future__ import annotations

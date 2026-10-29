@@ -1,0 +1,25 @@
+name: pedit
+services:
+  editor:
+    image: pedit-cn:${PEDIT_IMAGE_TAG:-local}
+    build:
+      context: ../..
+      dockerfile: deploy/tencent-cloud/Dockerfile
+      args:
+        PEDIT_EXTRAS: ${PEDIT_EXTRAS:-chat}
+    restart: unless-stopped
+    init: true
+    # 公网不直接开放编辑器，通过 SSH 隧道或带认证的反向代理访问。
+    ports:
+      - "127.0.0.1:${PEDIT_PORT:-8770}:8770"
+    volumes:
+      - pedit_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  pedit_data:

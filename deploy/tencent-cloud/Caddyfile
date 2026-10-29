@@ -1,0 +1,20 @@
+{$PEDIT_DOMAIN} {
+    # 限制浏览器跨站请求，同时允许不带 Origin 的 MCP 客户端。
+    @cross_site {
+        header Origin *
+        not header Origin https://{$PEDIT_DOMAIN}
+    }
+    respond @cross_site "不允许跨站请求" 403
+    basic_auth {
+        {$PEDIT_USERNAME} {$PEDIT_PASSWORD_HASH}
+    }
+    # 保持聊天、MCP 流式响应和 WebSocket 事件实时送达。
+    reverse_proxy editor:8770 {
+        flush_interval -1
+    }
+    header {
+        -Server
+        X-Content-Type-Options nosniff
+        Referrer-Policy same-origin
+    }
+}

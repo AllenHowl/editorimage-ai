@@ -1,4 +1,4 @@
-"""Operazioni di Store: modifiche, undo, atomicita', non distruttivita'."""
+"""Store 操作测试：修改、撤销、原子性及非破坏式编辑。"""
 
 import json
 from pathlib import Path
@@ -92,14 +92,27 @@ def test_batch_is_atomic(store):
 def test_locked_layer(store):
     a = store.add_text("Hi")
     store.set_layer(a["id"], locked=True)
-    with pytest.raises(EditError, match="locked"):
+    with pytest.raises(EditError, match="已锁定"):
         store.set_transform(a["id"], x=5)
     store.set_layer(a["id"], locked=False)
     store.set_transform(a["id"], x=5)
 
 
+def test_chinese_names_preserve_document_identifiers(store):
+    shape = store.add_shape()
+    adjustment = store.add_adjustment(type="brightness")
+    look = store.apply_look("warm")
+    assert shape["name"] == "矩形" and shape["type"] == "shape"
+    assert adjustment["name"] == "亮度" and adjustment["effects"][0]["type"] == "brightness"
+    assert look["name"] == "暖色"
+    assert store.duplicate_layer(shape["id"])["name"] == "矩形 副本"
+    reopened = Store.open(store.path)
+    assert reopened.project.layer(shape["id"]).shape.kind == "rect"
+    assert reopened.project.layer(adjustment["id"]).effects[0].type == "brightness"
+
+
 def test_errors_are_explanatory(store):
-    with pytest.raises(EditError, match="layers"):
+    with pytest.raises(EditError, match="现有图层"):
         store.set_layer("nope", opacity=0.5)
     a = store.add_shape()
     with pytest.raises(EditError, match="blend"):
@@ -208,8 +221,8 @@ def test_inpaint_removes_square(tmp_path, photo):
     assert v["backend"] == "diffusion"
     after = render.render(s.project, s.base_dir)
     r, g, b, _ = px(after, 120, 60)
-    assert g < 150 and b > 60          # niente piu' giallo: riempito dal gradiente attorno
-    # non distruttivo: l'immagine originale e' intatta, la toppa e' un livello in piu'
+    assert g < 150 and b > 60          # 黄色已移除，由周围渐变填充。
+    # 非破坏式：原图保持完整，补丁作为额外图层保存。
     assert len(s.project.layers) == 2
     s.remove_layer(v["id"])
     assert px(render.render(s.project, s.base_dir), 120, 60)[:3] == (250, 230, 20)

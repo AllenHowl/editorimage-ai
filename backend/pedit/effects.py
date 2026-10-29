@@ -1,19 +1,16 @@
-"""Registro dei filtri e degli stili di livello.
+"""滤镜和图层样式注册表。
 
-Ogni voce ha parametri dichiarati (tipo, intervallo, default, descrizione) e
-una funzione che lavora su un array numpy float32 ``(H, W, 4)`` in 0..1 con
-alpha *non* premoltiplicato. La validazione sta qui, una volta sola: UI,
-assistente e agente MCP passano tutti da ``validate``.
+每项声明参数类型、范围、默认值和说明，并提供处理 0..1 范围的 numpy
+float32 ``(H, W, 4)`` 数组的函数，alpha 不预乘。界面、助手和 MCP 智能体
+统一通过 ``validate`` 校验参数。
 
-Due famiglie:
-- ``filter``: cambiano i pixel del contenuto (colore, nitidezza, rumore...).
-  Vengono applicati prima della maschera;
-- ``style``: ombra, contorno, bagliore, sovrapposizione colore. Lavorano sulla
-  sagoma gia' mascherata, come gli stili di livello di Photoshop.
+分为两类：
+- ``filter``：改变内容像素，如颜色、清晰度和噪点，在蒙版之前应用。
+- ``style``：阴影、描边、发光和颜色叠加，作用于蒙版处理后的轮廓，
+  与 Photoshop 图层样式一致。
 
-I parametri marcati ``px`` sono lunghezze in pixel del documento: al render di
-un'anteprima ridotta vengono scalati, cosi' un'ombra di 20 px resta grande
-uguale in proporzione a qualunque ingrandimento.
+带 ``px`` 标记的参数以文档像素为单位，渲染缩略预览时按比例缩放，
+确保 20 像素阴影在不同缩放比例下保持相对大小。
 """
 
 from __future__ import annotations
@@ -30,7 +27,7 @@ class EffectError(ValueError):
 
 
 # --------------------------------------------------------------------------
-# utilita' numpy <-> PIL
+# numpy 与 PIL 之间的转换工具。
 # --------------------------------------------------------------------------
 
 
@@ -43,14 +40,14 @@ def to_pil(arr: np.ndarray) -> Image.Image:
 
 
 def parse_color(value: str | None, default: str = "#000000") -> tuple[int, int, int, int]:
-    """'#rgb', '#rrggbb', '#rrggbbaa', nomi CSS, 'transparent'."""
+    """支持 '#rgb'、'#rrggbb'、'#rrggbbaa'、CSS 颜色名及 'transparent'。"""
     v = (value or default).strip()
     if v.lower() in ("transparent", "none", ""):
         return (0, 0, 0, 0)
     try:
         c = ImageColor.getcolor(v, "RGBA")
     except ValueError as exc:
-        raise EffectError(f"invalid color {value!r}: use #rrggbb or a CSS name") from exc
+        raise EffectError(f"无效颜色 {value!r}：请使用 #rrggbb 或 CSS 颜色名") from exc
     return tuple(c)  # type: ignore[return-value]
 
 
@@ -59,13 +56,13 @@ def luminance(rgb: np.ndarray) -> np.ndarray:
 
 
 def _blur_arr(arr: np.ndarray, radius: float) -> np.ndarray:
-    """Sfocatura gaussiana di un canale o di un'immagine RGBA, via Pillow."""
+    """通过 Pillow 对单通道或 RGBA 图片进行高斯模糊。"""
     if radius <= 0:
         return arr
     if arr.ndim == 2:
         im = Image.fromarray((np.clip(arr, 0, 1) * 255).astype(np.uint8), "L")
         return np.asarray(im.filter(ImageFilter.GaussianBlur(radius)), dtype=np.float32) / 255.0
-    # premoltiplicato: altrimenti il colore dei pixel trasparenti "sporca" i bordi
+    # 先预乘 alpha，避免透明像素的颜色污染边缘。
     a = arr[..., 3:4]
     pm = np.concatenate([arr[..., :3] * a, a], axis=-1)
     im = Image.fromarray((np.clip(pm, 0, 1) * 255).astype(np.uint8), "RGBA")
@@ -111,12 +108,12 @@ def _with_rgb(arr: np.ndarray, rgb: np.ndarray) -> np.ndarray:
 
 
 def _noise(shape: tuple[int, ...], seed: int) -> np.ndarray:
-    """Rumore deterministico: lo stesso documento deve dare gli stessi pixel."""
+    """使用确定性噪点，保证相同文档始终生成相同像素。"""
     return np.random.default_rng(seed).standard_normal(shape).astype(np.float32)
 
 
 # --------------------------------------------------------------------------
-# filtri
+# 滤镜
 # --------------------------------------------------------------------------
 
 
@@ -125,7 +122,7 @@ def f_brightness(a, p, ctx):
 
 
 def f_contrast(a, p, ctx):
-    k = math.tan((p["amount"] + 1) * math.pi / 4)   # -1..1 -> 0..inf, 0 -> 1
+    k = math.tan((p["amount"] + 1) * math.pi / 4)   # 将 -1..1 映射到 0..正无穷，0 对应 1。
     return _with_rgb(a, (a[..., :3] - 0.5) * k + 0.5)
 
 
@@ -144,7 +141,7 @@ def f_saturation(a, p, ctx):
 
 
 def f_vibrance(a, p, ctx):
-    """Satura di piu' i colori spenti, quasi niente quelli gia' carichi (pelle salva)."""
+    """优先提高低饱和度颜色，尽量保留高饱和度颜色以保护肤色。"""
     rgb = a[..., :3]
     _, s, _ = _rgb_hsv(rgb)
     y = luminance(rgb)[..., None]
@@ -153,14 +150,14 @@ def f_vibrance(a, p, ctx):
 
 
 def f_temperature(a, p, ctx):
-    """Positivo = piu' caldo (rosso su, blu giu')."""
+    """正值使色调变暖：增加红色，减少蓝色。"""
     t = p["amount"] * 0.15
     rgb = a[..., :3] * np.array([1 + t, 1.0, 1 - t], dtype=np.float32)
     return _with_rgb(a, rgb)
 
 
 def f_tint(a, p, ctx):
-    """Positivo = verso il magenta, negativo = verso il verde."""
+    """正值偏洋红，负值偏绿色。"""
     t = p["amount"] * 0.12
     rgb = a[..., :3] * np.array([1 + t / 2, 1 - t, 1 + t / 2], dtype=np.float32)
     return _with_rgb(a, rgb)
@@ -175,7 +172,7 @@ def f_hue(a, p, ctx):
 def f_levels(a, p, ctx):
     lo, hi = p["black"] / 255.0, p["white"] / 255.0
     if hi <= lo:
-        raise EffectError("levels: white must be greater than black")
+        raise EffectError("色阶：白场必须大于黑场")
     x = np.clip((a[..., :3] - lo) / (hi - lo), 0, 1)
     x = np.power(x, 1.0 / p["gamma"])
     olo, ohi = p["out_black"] / 255.0, p["out_white"] / 255.0
@@ -206,7 +203,7 @@ def f_curves(a, p, ctx):
 def f_shadows_highlights(a, p, ctx):
     rgb = a[..., :3]
     y = luminance(rgb)
-    # maschere morbide: ombre sotto 0.5, luci sopra
+    # 柔和蒙版：亮度小于 0.5 的部分为阴影，大于 0.5 的部分为高光。
     sh = np.clip(1 - y * 2, 0, 1) ** 2
     hl = np.clip(y * 2 - 1, 0, 1) ** 2
     delta = p["shadows"] * 0.5 * sh - p["highlights"] * 0.5 * hl
@@ -240,7 +237,7 @@ def f_threshold(a, p, ctx):
 
 
 def f_auto_contrast(a, p, ctx):
-    """Stira ogni canale fra i percentili: toglie la velatura e le dominanti."""
+    """按百分位拉伸各通道，去除灰雾和偏色。"""
     rgb = a[..., :3]
     sel = a[..., 3] > 0.5
     if not sel.any():
@@ -255,10 +252,10 @@ def f_auto_contrast(a, p, ctx):
 
 
 def f_color_match(a, p, ctx):
-    """Trasferimento di Reinhard per canale: media e deviazione verso un riferimento.
+    """按通道执行 Reinhard 颜色迁移，将均值和标准差调整到参考图。
 
-    I parametri li calcola ``Store.match_color`` misurando i due livelli: qui
-    si applicano e basta, cosi' il render resta una funzione pura del documento.
+    参数由 ``Store.match_color`` 测量两个图层后计算；此处仅应用参数，
+    保持渲染为文档的纯函数。
     """
     rgb = a[..., :3]
     src_m, src_s = np.array(p["src_mean"], np.float32), np.array(p["src_std"], np.float32)
@@ -353,7 +350,7 @@ def f_chromatic_aberration(a, p, ctx):
 
 
 # --------------------------------------------------------------------------
-# stili di livello (sulla sagoma mascherata)
+# 图层样式（作用于蒙版后的轮廓）。
 # --------------------------------------------------------------------------
 
 
@@ -393,12 +390,12 @@ def s_outer_glow(a, p, ctx):
 
 
 def s_stroke(a, p, ctx):
-    """Contorno esterno: dilatazione dell'alpha con MaxFilter."""
+    """外部描边：通过 MaxFilter 膨胀 alpha 通道。"""
     width = max(1, int(round(p["width"] * ctx["scale"])))
     alpha = a[..., 3]
     im = Image.fromarray((alpha * 255).astype(np.uint8), "L")
     size = width * 2 + 1
-    # MaxFilter accetta solo dimensioni dispari e piccole: si ripete
+    # MaxFilter 仅支持较小的奇数尺寸，因此重复应用。
     while size > 1:
         step = min(size, 9)
         step -= 1 - step % 2
@@ -417,7 +414,7 @@ def s_color_overlay(a, p, ctx):
 
 
 # --------------------------------------------------------------------------
-# registro
+# 注册表
 # --------------------------------------------------------------------------
 
 
@@ -429,7 +426,7 @@ def I(default: int, lo: int, hi: int, desc: str) -> dict:  # noqa: E743
     return {"type": "int", "default": default, "min": lo, "max": hi, "desc": desc}
 
 
-def C(default: str, desc: str = "color") -> dict:
+def C(default: str, desc: str = "颜色") -> dict:
     return {"type": "color", "default": default, "desc": desc}
 
 
@@ -446,101 +443,101 @@ def V(desc: str) -> dict:
 
 
 REGISTRY: dict[str, dict[str, Any]] = {
-    # colore e tono
-    "brightness": {"kind": "filter", "group": "color", "fn": f_brightness, "desc": "Brighten or darken",
-                   "params": {"amount": N(0.0, -1, 1, "-1 darker .. +1 brighter")}},
-    "contrast": {"kind": "filter", "group": "color", "fn": f_contrast, "desc": "Contrast around mid grey",
-                 "params": {"amount": N(0.0, -0.95, 0.95, "-1 flat .. +1 punchy")}},
-    "exposure": {"kind": "filter", "group": "color", "fn": f_exposure, "desc": "Exposure in stops",
-                 "params": {"stops": N(0.0, -5, 5, "+1 = twice the light")}},
-    "gamma": {"kind": "filter", "group": "color", "fn": f_gamma, "desc": "Midtone gamma",
-              "params": {"gamma": N(1.0, 0.1, 5, ">1 brighter midtones")}},
-    "saturation": {"kind": "filter", "group": "color", "fn": f_saturation, "desc": "Color intensity",
-                   "params": {"amount": N(0.0, -1, 2, "-1 grey .. +1 double")}},
-    "vibrance": {"kind": "filter", "group": "color", "fn": f_vibrance,
-                 "desc": "Boost muted colors, protect already saturated ones (skin)",
-                 "params": {"amount": N(0.0, -1, 2, "strength")}},
-    "temperature": {"kind": "filter", "group": "color", "fn": f_temperature, "desc": "White balance warm/cool",
-                    "params": {"amount": N(0.0, -1, 1, "+ warmer, - cooler")}},
-    "tint": {"kind": "filter", "group": "color", "fn": f_tint, "desc": "White balance green/magenta",
-             "params": {"amount": N(0.0, -1, 1, "+ magenta, - green")}},
-    "hue": {"kind": "filter", "group": "color", "fn": f_hue, "desc": "Rotate hue",
-            "params": {"degrees": N(0.0, -180, 180, "degrees")}},
-    "levels": {"kind": "filter", "group": "color", "fn": f_levels, "desc": "Input/output levels with gamma",
-               "params": {"black": N(0, 0, 254, "input black point 0-255"),
-                          "white": N(255, 1, 255, "input white point 0-255"),
-                          "gamma": N(1.0, 0.1, 5, "midtones"),
-                          "out_black": N(0, 0, 255, "output black"),
-                          "out_white": N(255, 0, 255, "output white")}},
-    "curves": {"kind": "filter", "group": "color", "fn": f_curves,
-               "desc": "Tone curves: lists of [in, out] points 0-255 per channel",
-               "params": {"rgb": P("master curve [[0,0],[128,140],[255,255]]"),
-                          "r": P("red curve"), "g": P("green curve"), "b": P("blue curve")}},
-    "shadows_highlights": {"kind": "filter", "group": "color", "fn": f_shadows_highlights,
-                           "desc": "Lift shadows / recover highlights",
-                           "params": {"shadows": N(0.0, -1, 1, "+ lifts shadows"),
-                                      "highlights": N(0.0, -1, 1, "+ pulls highlights down")}},
-    "auto_contrast": {"kind": "filter", "group": "color", "fn": f_auto_contrast,
-                      "desc": "Stretch each channel between percentiles (removes haze and casts)",
-                      "params": {"clip": N(0.5, 0, 10, "percent clipped at each end")}},
-    "color_match": {"kind": "filter", "group": "color", "fn": f_color_match,
-                    "desc": "Color transfer computed by match_color (do not set by hand)",
-                    "params": {"src_mean": V("source mean rgb"), "src_std": V("source std rgb"),
-                               "dst_mean": V("target mean rgb"), "dst_std": V("target std rgb"),
-                               "amount": N(1.0, 0, 1, "strength")}},
-    "grayscale": {"kind": "filter", "group": "color", "fn": f_grayscale, "desc": "Black and white",
-                  "params": {"amount": N(1.0, 0, 1, "strength")}},
-    "sepia": {"kind": "filter", "group": "color", "fn": f_sepia, "desc": "Sepia toning",
-              "params": {"amount": N(1.0, 0, 1, "strength")}},
-    "invert": {"kind": "filter", "group": "color", "fn": f_invert, "desc": "Negative", "params": {}},
-    "posterize": {"kind": "filter", "group": "stylize", "fn": f_posterize, "desc": "Reduce tones per channel",
-                  "params": {"levels": I(6, 2, 64, "tones per channel")}},
-    "threshold": {"kind": "filter", "group": "stylize", "fn": f_threshold, "desc": "Pure black and white",
-                  "params": {"level": N(128, 0, 255, "cut point")}},
-    # dettaglio
-    "blur": {"kind": "filter", "group": "detail", "fn": f_blur, "desc": "Gaussian blur",
-             "params": {"radius": N(4.0, 0, 200, "radius in px", px=True)}},
-    "motion_blur": {"kind": "filter", "group": "detail", "fn": f_motion_blur, "desc": "Directional blur",
-                    "params": {"distance": N(20.0, 1, 400, "length in px", px=True),
-                               "angle": N(0.0, -180, 180, "degrees, 0 = horizontal")}},
-    "sharpen": {"kind": "filter", "group": "detail", "fn": f_sharpen, "desc": "Unsharp mask",
-                "params": {"amount": N(0.8, 0, 5, "strength"),
-                           "radius": N(1.5, 0.3, 20, "radius in px", px=True)}},
-    "denoise": {"kind": "filter", "group": "detail", "fn": f_denoise, "desc": "Median noise reduction",
-                "params": {"size": I(3, 3, 9, "window (odd)")}},
-    "noise": {"kind": "filter", "group": "detail", "fn": f_noise, "desc": "Film grain / noise",
-              "params": {"amount": N(0.2, 0, 1, "strength"), "mono": B(True, "same noise on all channels"),
-                         "seed": I(1, 0, 99999, "pattern")}},
-    # stilizzazione
-    "pixelate": {"kind": "filter", "group": "stylize", "fn": f_pixelate, "desc": "Mosaic",
-                 "params": {"size": N(16, 1, 500, "block size in px", px=True)}},
-    "vignette": {"kind": "filter", "group": "stylize", "fn": f_vignette, "desc": "Darken the corners",
-                 "params": {"amount": N(0.5, 0, 1, "strength"), "softness": N(0.5, 0, 1, "falloff")}},
-    "emboss": {"kind": "filter", "group": "stylize", "fn": f_emboss, "desc": "Relief", "params": {}},
-    "edges": {"kind": "filter", "group": "stylize", "fn": f_edges, "desc": "Find edges", "params": {}},
-    "chromatic_aberration": {"kind": "filter", "group": "stylize", "fn": f_chromatic_aberration,
-                             "desc": "Red/blue fringe",
-                             "params": {"amount": N(4, 0, 60, "shift in px", px=True)}},
-    # stili di livello
-    "drop_shadow": {"kind": "style", "group": "style", "fn": s_drop_shadow, "desc": "Drop shadow",
-                    "params": {"dx": N(8, -500, 500, "offset x px", px=True),
-                               "dy": N(8, -500, 500, "offset y px", px=True),
-                               "blur": N(10, 0, 200, "softness px", px=True),
-                               "color": C("#000000"), "opacity": N(0.6, 0, 1, "opacity")}},
-    "outer_glow": {"kind": "style", "group": "style", "fn": s_outer_glow, "desc": "Glow around the shape",
-                   "params": {"radius": N(16, 1, 300, "size px", px=True), "color": C("#ffffff"),
-                              "opacity": N(0.8, 0, 1, "opacity")}},
-    "stroke": {"kind": "style", "group": "style", "fn": s_stroke, "desc": "Outline around the shape",
-               "params": {"width": N(4, 1, 100, "width px", px=True), "color": C("#000000"),
-                          "opacity": N(1.0, 0, 1, "opacity")}},
-    "color_overlay": {"kind": "style", "group": "style", "fn": s_color_overlay, "desc": "Fill the shape with a color",
-                      "params": {"color": C("#ff0000"), "opacity": N(1.0, 0, 1, "opacity")}},
+    # 颜色和色调
+    "brightness": {"label": "亮度", "kind": "filter", "group": "color", "fn": f_brightness, "desc": "提亮或压暗图片",
+                   "params": {"amount": N(0.0, -1, 1, "-1 压暗，+1 提亮")}},
+    "contrast": {"label": "对比度", "kind": "filter", "group": "color", "fn": f_contrast, "desc": "围绕中灰调整对比度",
+                 "params": {"amount": N(0.0, -0.95, 0.95, "-1 柔和，+1 强烈")}},
+    "exposure": {"label": "曝光", "kind": "filter", "group": "color", "fn": f_exposure, "desc": "按曝光档数调整亮度",
+                 "params": {"stops": N(0.0, -5, 5, "+1 表示亮度加倍")}},
+    "gamma": {"label": "伽马", "kind": "filter", "group": "color", "fn": f_gamma, "desc": "中间调伽马",
+              "params": {"gamma": N(1.0, 0.1, 5, "大于 1 时提亮中间调")}},
+    "saturation": {"label": "饱和度", "kind": "filter", "group": "color", "fn": f_saturation, "desc": "颜色强度",
+                   "params": {"amount": N(0.0, -1, 2, "-1 灰度，+1 饱和度加倍")}},
+    "vibrance": {"label": "自然饱和度", "kind": "filter", "group": "color", "fn": f_vibrance,
+                 "desc": "增强低饱和度颜色，保护已饱和的颜色和肤色",
+                 "params": {"amount": N(0.0, -1, 2, "强度")}},
+    "temperature": {"label": "色温", "kind": "filter", "group": "color", "fn": f_temperature, "desc": "调整冷暖白平衡",
+                    "params": {"amount": N(0.0, -1, 1, "正值偏暖，负值偏冷")}},
+    "tint": {"label": "色调", "kind": "filter", "group": "color", "fn": f_tint, "desc": "调整绿色与洋红色之间的白平衡",
+             "params": {"amount": N(0.0, -1, 1, "正值偏洋红，负值偏绿")}},
+    "hue": {"label": "色相", "kind": "filter", "group": "color", "fn": f_hue, "desc": "旋转色相",
+            "params": {"degrees": N(0.0, -180, 180, "角度")}},
+    "levels": {"label": "色阶", "kind": "filter", "group": "color", "fn": f_levels, "desc": "输入和输出色阶及伽马调整",
+               "params": {"black": N(0, 0, 254, "输入黑场，范围 0–255"),
+                          "white": N(255, 1, 255, "输入白场，范围 0–255"),
+                          "gamma": N(1.0, 0.1, 5, "中间调"),
+                          "out_black": N(0, 0, 255, "输出黑场"),
+                          "out_white": N(255, 0, 255, "输出白场")}},
+    "curves": {"label": "曲线", "kind": "filter", "group": "color", "fn": f_curves,
+               "desc": "色调曲线：每个通道使用 0–255 的 [输入, 输出] 控制点列表",
+               "params": {"rgb": P("整体曲线，如 [[0,0],[128,140],[255,255]]"),
+                          "r": P("红色曲线"), "g": P("绿色曲线"), "b": P("蓝色曲线")}},
+    "shadows_highlights": {"label": "阴影 / 高光", "kind": "filter", "group": "color", "fn": f_shadows_highlights,
+                           "desc": "提亮阴影，恢复高光",
+                           "params": {"shadows": N(0.0, -1, 1, "正值提亮阴影"),
+                                      "highlights": N(0.0, -1, 1, "正值压低高光")}},
+    "auto_contrast": {"label": "自动对比度", "kind": "filter", "group": "color", "fn": f_auto_contrast,
+                      "desc": "按百分位拉伸各通道，去除灰雾和偏色",
+                      "params": {"clip": N(0.5, 0, 10, "两端各裁切的百分比")}},
+    "color_match": {"label": "颜色匹配", "kind": "filter", "group": "color", "fn": f_color_match,
+                    "desc": "由 match_color 计算颜色迁移参数，请勿手动设置",
+                    "params": {"src_mean": V("源 RGB 均值"), "src_std": V("源 RGB 标准差"),
+                               "dst_mean": V("目标 RGB 均值"), "dst_std": V("目标 RGB 标准差"),
+                               "amount": N(1.0, 0, 1, "强度")}},
+    "grayscale": {"label": "黑白", "kind": "filter", "group": "color", "fn": f_grayscale, "desc": "黑白效果",
+                  "params": {"amount": N(1.0, 0, 1, "强度")}},
+    "sepia": {"label": "褐色调", "kind": "filter", "group": "color", "fn": f_sepia, "desc": "褐色调效果",
+              "params": {"amount": N(1.0, 0, 1, "强度")}},
+    "invert": {"label": "反相", "kind": "filter", "group": "color", "fn": f_invert, "desc": "负片效果", "params": {}},
+    "posterize": {"label": "色调分离", "kind": "filter", "group": "stylize", "fn": f_posterize, "desc": "减少各通道的色阶数量",
+                  "params": {"levels": I(6, 2, 64, "每个通道的色阶数")}},
+    "threshold": {"label": "阈值", "kind": "filter", "group": "stylize", "fn": f_threshold, "desc": "纯黑白效果",
+                  "params": {"level": N(128, 0, 255, "分界阈值")}},
+    # 细节
+    "blur": {"label": "高斯模糊", "kind": "filter", "group": "detail", "fn": f_blur, "desc": "高斯模糊",
+             "params": {"radius": N(4.0, 0, 200, "半径，单位为像素", px=True)}},
+    "motion_blur": {"label": "动感模糊", "kind": "filter", "group": "detail", "fn": f_motion_blur, "desc": "方向性模糊",
+                    "params": {"distance": N(20.0, 1, 400, "长度，单位为像素", px=True),
+                               "angle": N(0.0, -180, 180, "角度，0 表示水平")}},
+    "sharpen": {"label": "锐化", "kind": "filter", "group": "detail", "fn": f_sharpen, "desc": "反差保留锐化",
+                "params": {"amount": N(0.8, 0, 5, "强度"),
+                           "radius": N(1.5, 0.3, 20, "半径，单位为像素", px=True)}},
+    "denoise": {"label": "降噪", "kind": "filter", "group": "detail", "fn": f_denoise, "desc": "中值滤波降噪",
+                "params": {"size": I(3, 3, 9, "窗口大小（奇数）")}},
+    "noise": {"label": "噪点", "kind": "filter", "group": "detail", "fn": f_noise, "desc": "胶片颗粒 / 噪点",
+              "params": {"amount": N(0.2, 0, 1, "强度"), "mono": B(True, "所有通道使用相同噪点"),
+                         "seed": I(1, 0, 99999, "噪点图案")}},
+    # 风格化
+    "pixelate": {"label": "马赛克", "kind": "filter", "group": "stylize", "fn": f_pixelate, "desc": "马赛克",
+                 "params": {"size": N(16, 1, 500, "色块大小，单位为像素", px=True)}},
+    "vignette": {"label": "暗角", "kind": "filter", "group": "stylize", "fn": f_vignette, "desc": "压暗四角",
+                 "params": {"amount": N(0.5, 0, 1, "强度"), "softness": N(0.5, 0, 1, "衰减")}},
+    "emboss": {"label": "浮雕", "kind": "filter", "group": "stylize", "fn": f_emboss, "desc": "浮雕", "params": {}},
+    "edges": {"label": "查找边缘", "kind": "filter", "group": "stylize", "fn": f_edges, "desc": "查找边缘", "params": {}},
+    "chromatic_aberration": {"label": "色差", "kind": "filter", "group": "stylize", "fn": f_chromatic_aberration,
+                             "desc": "红蓝边缘色差",
+                             "params": {"amount": N(4, 0, 60, "偏移，单位为像素", px=True)}},
+    # 图层样式
+    "drop_shadow": {"label": "投影", "kind": "style", "group": "style", "fn": s_drop_shadow, "desc": "投影",
+                    "params": {"dx": N(8, -500, 500, "水平偏移，单位为像素", px=True),
+                               "dy": N(8, -500, 500, "垂直偏移，单位为像素", px=True),
+                               "blur": N(10, 0, 200, "柔和度，单位为像素", px=True),
+                               "color": C("#000000"), "opacity": N(0.6, 0, 1, "不透明度")}},
+    "outer_glow": {"label": "外发光", "kind": "style", "group": "style", "fn": s_outer_glow, "desc": "沿轮廓外部发光",
+                   "params": {"radius": N(16, 1, 300, "大小，单位为像素", px=True), "color": C("#ffffff"),
+                              "opacity": N(0.8, 0, 1, "不透明度")}},
+    "stroke": {"label": "描边", "kind": "style", "group": "style", "fn": s_stroke, "desc": "沿形状轮廓描边",
+               "params": {"width": N(4, 1, 100, "宽度，单位为像素", px=True), "color": C("#000000"),
+                          "opacity": N(1.0, 0, 1, "不透明度")}},
+    "color_overlay": {"label": "颜色叠加", "kind": "style", "group": "style", "fn": s_color_overlay, "desc": "用颜色填充形状",
+                      "params": {"color": C("#ff0000"), "opacity": N(1.0, 0, 1, "不透明度")}},
 }
 
 
 def spec(name: str) -> dict:
     if name not in REGISTRY:
-        raise EffectError(f"unknown effect {name!r}; available: {', '.join(REGISTRY)}")
+        raise EffectError(f"未知效果 {name!r}；可选：{', '.join(REGISTRY)}")
     return REGISTRY[name]
 
 
@@ -548,20 +545,20 @@ def _num(name: str, key: str, v: Any, sp: dict) -> float:
     try:
         x = float(v)
     except (TypeError, ValueError) as exc:
-        raise EffectError(f"{name}.{key}: expected a number, got {v!r}") from exc
+        raise EffectError(f"{name}.{key}：需要数值，实际为 {v!r}") from exc
     if not math.isfinite(x) or x < sp["min"] or x > sp["max"]:
-        raise EffectError(f"{name}.{key}={v} out of range [{sp['min']}, {sp['max']}]")
+        raise EffectError(f"{name}.{key}={v} 超出范围 [{sp['min']}, {sp['max']}]")
     return x
 
 
 def validate(name: str, params: dict | None, partial: bool = False) -> dict:
-    """Parametri completi e controllati. ``partial`` per gli aggiornamenti."""
+    """补全并校验参数，更新时可使用 ``partial`` 模式。"""
     sp = spec(name)
     params = dict(params or {})
     unknown = set(params) - set(sp["params"])
     if unknown:
-        raise EffectError(f"{name}: unknown parameters {sorted(unknown)}; "
-                          f"accepted: {sorted(sp['params']) or 'none'}")
+        raise EffectError(f"{name}：未知参数 {sorted(unknown)}; "
+                          f"可用参数：{sorted(sp['params']) or 'none'}")
     out: dict[str, Any] = {}
     for key, ps in sp["params"].items():
         if key not in params:
@@ -585,11 +582,11 @@ def validate(name: str, params: dict | None, partial: bool = False) -> dict:
                 continue
             if not isinstance(v, list) or len(v) < 2 or not all(
                     isinstance(q, (list, tuple)) and len(q) == 2 for q in v):
-                raise EffectError(f"{name}.{key}: expected a list of [in, out] pairs, at least two")
+                raise EffectError(f"{name}.{key}：需要至少两组 [输入, 输出] 控制点")
             out[key] = [[float(q[0]), float(q[1])] for q in v]
         elif t == "vector":
             if not isinstance(v, (list, tuple)) or len(v) != 3:
-                raise EffectError(f"{name}.{key}: expected [r, g, b]")
+                raise EffectError(f"{name}.{key}：需要 [r, g, b]")
             out[key] = [float(q) for q in v]
     return out
 
@@ -601,10 +598,10 @@ def apply(arr: np.ndarray, name: str, params: dict, scale: float = 1.0) -> np.nd
 
 
 def describe() -> list[dict]:
-    """Catalogo per UI, assistente e ``list_effects``."""
+    """供界面、助手及 ``list_effects`` 使用的效果目录。"""
     out = []
     for name, sp in REGISTRY.items():
-        out.append({"name": name, "kind": sp["kind"], "group": sp["group"], "desc": sp["desc"],
+        out.append({"name": name, "kind": sp["kind"], "group": sp["group"], "label": sp["label"], "desc": sp["desc"],
                     "params": {k: {kk: vv for kk, vv in v.items()} for k, v in sp["params"].items()}})
     return out
 
